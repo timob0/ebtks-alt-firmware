@@ -12,6 +12,7 @@
 
 #include "HpibDisk.h"
 #include "HpibPrint.h"
+#include "HpibPrintUSB.h"
 
 #include <strings.h>                                    //  Needed for strcasecmp() prototype
 
@@ -456,20 +457,30 @@ void mount_drives_based_on_JSON(JsonDocument& doc)
 
     if (hpibDevice["printer"])                                              //  If the device has a printer section, then it must be a printer (or a disk drive that can print)
     {
-      //  int type = hpibDevice["type"] | 0;                                //  Not currently used
-      if ((devices[device] == NULL) && (enable == true))                    //  If we haven't already created a printer object, do it now. Although really, doesn't
+      int type = hpibDevice["type"] | 0;                                    //  0 or not set -> file, 1 = USB Host
+      if ((devices[device] == NULL) && (enable == true)) {                  //  If we haven't already created a printer object, do it now. Although really, doesn't
                                                                             //  this only happen once, during boot. (well ok, also with MOUNT "SDCard")
-      {
-        devices[device] = new HpibPrint(device, HPDEV_PRT);                 //  Create a new HPIB printer device
-      }
-      const char *printerFname = hpibDevice["filepath"];                    //  Printer printerFname
-      if ((devices[device] != NULL) && (enable == true))                    //  
-      {
-        devices[device]->setFile((char *)printerFname);
-        temp_char_ptr = log_to_serial_ptr;
-        log_to_serial_ptr += sprintf(log_to_serial_ptr, "Add Printer: Device %1d%2d with print file: %s\n", select, device, printerFname);
-        LOGPRINTF("%s", temp_char_ptr);
-        log_to_CRT_ptr    += sprintf(log_to_CRT_ptr, "Printer %1d%2d %s\n", select, device, printerFname);
+        if (type==0) {
+          devices[device] = new HpibPrint(device, HPDEV_PRT);               //  Create a new HPIB file printer device
+          const char *printerFname = hpibDevice["filepath"];                //  Printer printerFname
+          devices[device]->setFile((char *)printerFname);
+          temp_char_ptr = log_to_serial_ptr;
+          log_to_serial_ptr += sprintf(log_to_serial_ptr, "Add Printer: Device %1d%2d with print file: %s\n", select, device, printerFname);
+          LOGPRINTF("%s", temp_char_ptr);
+          log_to_CRT_ptr    += sprintf(log_to_CRT_ptr, "Printer %1d%2d %s\n", select, device, printerFname);
+        }
+        else if(type==1) {
+          devices[device] = new HpibPrintUSB(device, HPDEV_PRTUSB);          //  Create a new HPIB file printer device
+          temp_char_ptr = log_to_serial_ptr;
+          log_to_serial_ptr += sprintf(log_to_serial_ptr, "Add Printer: Device %1d%2d with USB Host output.\n", select, device);
+          LOGPRINTF("%s", temp_char_ptr);
+          log_to_CRT_ptr    += sprintf(log_to_CRT_ptr, "USB Host Printer %1d%2d\n", select, device);
+        }
+        else {
+          temp_char_ptr = log_to_serial_ptr;
+          log_to_serial_ptr += sprintf(log_to_serial_ptr, "Add Printer: Invalid configuration for %1d%2d.\n", select, device);
+          LOGPRINTF("%s", temp_char_ptr);
+        }
       }
     }
   }
