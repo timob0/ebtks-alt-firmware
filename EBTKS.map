@@ -2561,7 +2561,7 @@ Linker script and memory map
 LOAD /Users/timo/.platformio/packages/toolchain-gccarmnoneeabi-teensy/bin/../lib/gcc/arm-none-eabi/15.2.1/thumb/v7e-m+dp/hard/crti.o
 LOAD /Users/timo/.platformio/packages/toolchain-gccarmnoneeabi-teensy/bin/../lib/gcc/arm-none-eabi/15.2.1/thumb/v7e-m+dp/hard/crtbegin.o
 LOAD /Users/timo/.platformio/packages/toolchain-gccarmnoneeabi-teensy/bin/../lib/gcc/arm-none-eabi/15.2.1/../../../../arm-none-eabi/lib/thumb/v7e-m+dp/hard/crt0.o
-                0x6a53d05f                        __rtc_localtime = 0x6a53d05f
+                0x6ad2688a                        __rtc_localtime = 0x6ad2688a
 LOAD .pio/build/teensy41/src/EBTKS.cpp.o
 LOAD .pio/build/teensy41/src/EBTKS_1MB5.cpp.o
 LOAD .pio/build/teensy41/src/EBTKS_AUXROM.cpp.o
