@@ -4,12 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// EBTKS compatibility wrapper around Densaugeo/base64_arduino.
-//
-// Keep Densaugeo's implementation out of this public header. Its base64.hpp
-// contains function definitions, so including it in more than one translation
-// unit causes duplicate linker symbols. The implementation lives in
-// src/Base64.cpp and is compiled exactly once.
+// EBTKS compatibility wrapper around the vendored tkislan/base64 implementation.
+// The implementation lives in src/Base64.cpp so the rest of the firmware keeps
+// one small, stable Base64 API while the underlying codec remains replaceable.
 class Base64Class
 {
 public:
@@ -20,7 +17,7 @@ public:
 
   // Compatibility with the original patched EBTKS Base64 library. The remote
   // CRT alpha-screen path streams 512 raw bytes; we buffer them and perform a
-  // single Densaugeo encode in finalStreamEncode().
+  // single bounded encode in finalStreamEncode().
   void beginStreamEncode(char *output);
   void streamEncode(uint8_t value);
   int finalStreamEncode();
