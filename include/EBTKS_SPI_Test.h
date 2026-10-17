@@ -71,15 +71,16 @@ inline void ebtksSpiTestInit()
 // firstMisoMismatch / misoCrc, not confused with a READY timeout.
 // Full-duplex remains optional; omitting bidi preserves the proven MOSI test.
 inline bool ebtksSpiTestRead(uint8_t sequence, uint16_t block, uint8_t pattern,
-                             uint32_t hz, bool bidi, uint16_t &mosiCrc,
+                             uint32_t hz, uint8_t spiMode, bool bidi, uint16_t &mosiCrc,
                              uint16_t &misoCrc, int &firstMisoMismatch,
-                             uint32_t &elapsedUs)
+                             uint8_t *misoSample16, uint32_t &elapsedUs)
 {
   mosiCrc = 0xFFFF;
   misoCrc = bidi ? 0xFFFF : 0;
   firstMisoMismatch = -1;
   elapsedUs = 0;
-  if (!ebtksSpiTestValidHz(hz) || pattern > 4) return false;
+  for (uint8_t i = 0; i < 16; ++i) misoSample16[i] = 0;
+  if (!ebtksSpiTestValidHz(hz) || pattern > 4 || spiMode > 1) return false;
   ebtksSpiTestInit();
 
   const uint32_t startWait = millis();
@@ -88,7 +89,10 @@ inline bool ebtksSpiTestRead(uint8_t sequence, uint16_t block, uint8_t pattern,
     if ((uint32_t)(millis() - startWait) > 500) return false;
   }
 
-  SPI.beginTransaction(SPISettings(hz, MSBFIRST, SPI_MODE0));
+  // ESP-IDF 4.4 recommends mode 1 for full-duplex slave DMA; keep
+  // mode 0 selectable for comparison with the proven MOSI-only baseline.
+  SPI.beginTransaction(SPISettings(hz, MSBFIRST,
+                                   spiMode == 1 ? SPI_MODE1 : SPI_MODE0));
   digitalWriteFast(EBTKS_SPI_TEST_CS, LOW);
   delayMicroseconds(3);
   const uint32_t startUs = micros();
@@ -97,6 +101,7 @@ inline bool ebtksSpiTestRead(uint8_t sequence, uint16_t block, uint8_t pattern,
     const uint8_t incoming = SPI.transfer(value);
     mosiCrc = ebtksSpiTestCrcByte(mosiCrc, value);
     if (bidi) {
+      if (i < 16) misoSample16[i] = incoming;
       misoCrc = ebtksSpiTestCrcByte(misoCrc, incoming);
       if (firstMisoMismatch < 0 &&
           incoming != ebtksSpiTestReverseByte(i, sequence, block, pattern))
