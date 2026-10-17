@@ -1,19 +1,17 @@
 #include <Arduino.h>
+#include <string.h>
 #include "Base64.h"
 
-// EBTKS_CRT.cpp owns the mirrored CRT state. Keep this definition in sync with
-// video_capt_t there so this source file can expose the visible HP-85 alpha
-// page without changing the ISR-facing CRT emulation code.
-typedef struct
-{
-  uint8_t vram[16384];
-  uint16_t sadAddr;
-  uint16_t badAddr;
-  uint8_t  ctrl;
-} video_capt_t;
-
-extern video_capt_t current_screen;
+// EBTKS_CRT.cpp owns `current_screen`. Its video_capt_t is an anonymous
+// typedef local to that source file, so do not redeclare it here with a
+// different C++ type. Instead bind a byte-view identifier to the existing
+// linker symbol and read its object representation. Access through uint8_t
+// (unsigned char on Teensy) is valid for inspecting an object's bytes.
+extern uint8_t ebtksCurrentScreenBytes[] asm("current_screen");
 extern bool Is8687;
+
+static const size_t CRT_VRAM_OFFSET = 0;
+static const size_t CRT_SAD_OFFSET  = 16384;
 
 static int encodeVisibleHp85Alpha(char *buff, size_t capacity)
 {
@@ -28,14 +26,17 @@ static int encodeVisibleHp85Alpha(char *buff, size_t capacity)
     return -1;
   }
 
+  uint16_t sad = 0;
+  memcpy(&sad, ebtksCurrentScreenBytes + CRT_SAD_OFFSET, sizeof(sad));
+
   // HP-85 SAD is a nibble address. The mirror stores packed bytes, so divide
   // by two. Alpha RAM is 32 x 64 characters and wraps after byte 2047.
   static uint8_t visible[512];
-  int addr = current_screen.sadAddr / 2;
+  int addr = sad / 2;
 
   for (size_t i = 0; i < sizeof(visible); ++i)
   {
-    visible[i] = current_screen.vram[addr++];
+    visible[i] = ebtksCurrentScreenBytes[CRT_VRAM_OFFSET + addr++];
     if (addr > 2047)
       addr = 0;
   }
