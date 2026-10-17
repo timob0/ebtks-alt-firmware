@@ -361,9 +361,10 @@ public:
       reply["len"] = writeLen;
     }
 
-    // Optional CN3 SPI read diagnostic. Not used by normal disk traffic.
-    // The ESP32 has armed its SPI slave transaction BEFORE sending this UART
-    // JSON command. Return the CRC and elapsed time over existing UART.
+    // Optional CN3 SPI diagnostic: ESP32 DMA is armed BEFORE this UART
+    // request. With "bidi":true, Teensy also verifies its MISO receive bytes,
+    // allowing one 512-byte transaction to validate both wire directions.
+    // This never accesses SD or CP/M disk data.
     else if (jdoc["spi_probe"])
     {
       const int requestedLen = jdoc["spi_probe"]["len"] | 0;
@@ -371,26 +372,34 @@ public:
       const int requestedSeq = jdoc["spi_probe"]["seq"] | -1;
       const int requestedBlock = jdoc["spi_probe"]["block"] | 0;
       const int requestedPattern = jdoc["spi_probe"]["pattern"] | 0;
-      uint16_t crc = 0;
+      const bool bidi = jdoc["spi_probe"]["bidi"] | false;
+      uint16_t mosiCrc = 0;
+      uint16_t misoCrc = 0;
+      int firstMisoMismatch = -1;
       uint32_t elapsedUs = 0;
-      bool ok = false;
+      bool transferred = false;
       if (requestedLen == EBTKS_SPI_TEST_SIZE &&
           ebtksSpiTestValidHz(requestedHz) &&
           requestedSeq >= 0 && requestedSeq <= 255 &&
           requestedBlock >= 0 && requestedBlock <= 65535 &&
           requestedPattern >= 0 && requestedPattern <= 4) {
-        ok = ebtksSpiTestRead((uint8_t)requestedSeq, (uint16_t)requestedBlock,
-                              (uint8_t)requestedPattern, requestedHz, crc, elapsedUs);
+        transferred = ebtksSpiTestRead(
+            (uint8_t)requestedSeq, (uint16_t)requestedBlock,
+            (uint8_t)requestedPattern, requestedHz, bidi,
+            mosiCrc, misoCrc, firstMisoMismatch, elapsedUs);
       }
 
       JsonObject reply = jreply["spi_probe"].to<JsonObject>();
-      reply["ok"] = ok;
+      reply["ok"] = transferred && firstMisoMismatch < 0;
+      reply["bidi"] = bidi;
       reply["seq"] = requestedSeq;
       reply["block"] = requestedBlock;
       reply["pattern"] = requestedPattern;
       reply["hz"] = requestedHz;
-      reply["len"] = ok ? EBTKS_SPI_TEST_SIZE : 0;
-      reply["crc"] = crc;
+      reply["len"] = transferred ? EBTKS_SPI_TEST_SIZE : 0;
+      reply["crc"] = mosiCrc; // Teensy MOSI transmit CRC (legacy key)
+      reply["miso_crc"] = misoCrc; // Teensy MISO receive CRC, if enabled
+      reply["miso_first_mismatch"] = firstMisoMismatch; // -1 = all bytes equal
       reply["us"] = elapsedUs;
     }
 
