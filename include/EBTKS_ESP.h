@@ -373,6 +373,8 @@ public:
       const int requestedBlock = jdoc["spi_probe"]["block"] | 0;
       const int requestedPattern = jdoc["spi_probe"]["pattern"] | 0;
       const bool bidi = jdoc["spi_probe"]["bidi"] | false;
+      const int requestedMode = jdoc["spi_probe"]["mode"] | 0;
+      uint8_t misoSample16[16] = {};
       uint16_t mosiCrc = 0;
       uint16_t misoCrc = 0;
       int firstMisoMismatch = -1;
@@ -382,16 +384,30 @@ public:
           ebtksSpiTestValidHz(requestedHz) &&
           requestedSeq >= 0 && requestedSeq <= 255 &&
           requestedBlock >= 0 && requestedBlock <= 65535 &&
-          requestedPattern >= 0 && requestedPattern <= 4) {
+          requestedPattern >= 0 && requestedPattern <= 4 &&
+          requestedMode >= 0 && requestedMode <= 1) {
         transferred = ebtksSpiTestRead(
             (uint8_t)requestedSeq, (uint16_t)requestedBlock,
-            (uint8_t)requestedPattern, requestedHz, bidi,
-            mosiCrc, misoCrc, firstMisoMismatch, elapsedUs);
+            (uint8_t)requestedPattern, requestedHz, (uint8_t)requestedMode,
+            bidi, mosiCrc, misoCrc, firstMisoMismatch, misoSample16, elapsedUs);
       }
 
+      // Bounded raw samples are more diagnostic than a CRC alone. If
+      // 512 bytes appear all zero, we can distinguish a stuck-low line
+      // from bit shifting or a partially driven MISO output.
+      char misoHead[33] = {};
+      if (transferred && bidi) {
+        static const char hexDigits[] = "0123456789ABCDEF";
+        for (uint8_t i = 0; i < 16; ++i) {
+          misoHead[i * 2] = hexDigits[misoSample16[i] >> 4];
+          misoHead[i * 2 + 1] = hexDigits[misoSample16[i] & 15];
+        }
+      }
       JsonObject reply = jreply["spi_probe"].to<JsonObject>();
       reply["ok"] = transferred && firstMisoMismatch < 0;
       reply["bidi"] = bidi;
+      reply["mode"] = requestedMode;
+      reply["miso_head_hex"] = misoHead;
       reply["seq"] = requestedSeq;
       reply["block"] = requestedBlock;
       reply["pattern"] = requestedPattern;
