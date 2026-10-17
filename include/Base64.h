@@ -33,3 +33,13 @@ private:
 // Existing EBTKS sources use both a global Base64 object and their own
 // Base64Class instance. Keep a TU-local global for compatibility.
 static Base64Class Base64;
+
+// EBTKS_ESP.h defines ARDUINOJSON_ENABLE_COMMENTS immediately before it
+// includes this header. In that translation unit route the historical CRT
+// hook to the restored, bounded implementation in EBTKS_Remote_CRT.cpp.
+// EBTKS_CRT.cpp does not define this ArduinoJson option before including
+// Base64.h, so its old disabled implementation remains untouched for reference.
+#if defined(ARDUINOJSON_ENABLE_COMMENTS)
+void dumpCrtRemoteAsBase64(char *buff, bool comp_graph);
+#define dumpCrtAlphaAsBase64 dumpCrtRemoteAsBase64
+#endif
