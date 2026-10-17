@@ -3,7 +3,7 @@
 #
 # Densaugeo/base64_arduino is now wrapped by include/Base64.h and supplies the
 # original EBTKS stream-encoder API, so the old alpha-screen code is valid
-# again.  Build a patched copy without modifying the developer's working tree.
+# again. Build a patched copy without modifying the developer's working tree.
 
 import os
 
@@ -18,13 +18,19 @@ def restore_remote_crt(env, node):
     with open(src_path, "r", encoding="utf-8") as f:
         text = f.read()
 
-    text = text.replace(
+    old_addr = (
         "  // Commented out for temporary fixed to the Base64 library use\n"
-        "  // int addr = current_screen.sadAddr / 2;\n",
-        "  // Start of the visible 32 x 16 alpha page in the mirrored 32 x 64 buffer.\n"
-        "  int addr = current_screen.sadAddr / 2;\n",
-        1,
+        "  // int addr = current_screen.sadAddr / 2;\n"
     )
+    new_addr = (
+        "  // Start of the visible 32 x 16 alpha page in the mirrored 32 x 64 buffer.\n"
+        "  int addr = current_screen.sadAddr / 2;\n"
+    )
+    if old_addr not in text:
+        raise RuntimeError(
+            "Expected disabled CRT alpha start-address block was not found"
+        )
+    text = text.replace(old_addr, new_addr, 1)
 
     old_block = '''  else
   {
@@ -80,4 +86,6 @@ def restore_remote_crt(env, node):
     return env.File(out_path)
 
 
-env.AddBuildMiddleware(restore_remote_crt, "*/src/EBTKS_CRT.cpp")
+# Run for every source node and only replace EBTKS_CRT.cpp. This avoids
+# depending on PlatformIO's platform-specific relative node path spelling.
+env.AddBuildMiddleware(restore_remote_crt)
