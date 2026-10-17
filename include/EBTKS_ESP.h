@@ -18,9 +18,12 @@ Base64Class ourBase64;
 DirLine dl;
 struct s_Dir_Entry dirent;
 
-#define MAX_LINE 512
+// 512 raw disk bytes become 684 Base64 characters. 1024 leaves sufficient
+// room for the JSON envelope while matching the enlarged Serial2 RX buffer.
+#define MAX_LINE 1024
 #define MAX_READ_LEN 512
 #define MAX_STR_LEN 4096
+#define DISK_SECTOR_LEN 512
 
 
 extern void dumpCrtAlphaAsBase64(char *buff, bool comp_graph);
@@ -141,7 +144,7 @@ private:
       0xF001, 0x30C0, 0x3180, 0xF141, 0x3300, 0xF3C1, 0xF281, 0x3240,
       0x3600, 0xF6C1, 0xF781, 0x3740, 0xF501, 0x35C0, 0x3480, 0xF441,
       0x3C00, 0xFCC1, 0xFD81, 0x3D40, 0xFF01, 0x3FC0, 0x3E80, 0xFE41,
-      0xFA01, 0x3AC0, 0x3B80, 0xFB41, 0x3900, 0xF9C1, 0xF881, 0x3840,
+      0xFA01, 0x3AC0, 0x3B81, 0xFB41, 0x3900, 0xF9C1, 0xF881, 0x3840,
       0x2800, 0xE8C1, 0xE981, 0x2940, 0xEB01, 0x2BC0, 0x2A80, 0xEA41,
       0xEE01, 0x2EC0, 0x2F80, 0xEF41, 0x2D00, 0xEDC1, 0xEC81, 0x2C40,
       0xE401, 0x24C0, 0x2580, 0xE541, 0x2700, 0xE7C1, 0xE681, 0x2640,
@@ -217,13 +220,13 @@ public:
           gl_state = 0;
           found = true; //bail
         }
-        else if (_lineNdx < MAX_LINE)
+        else if (_lineNdx < (MAX_LINE - 1))
         {
           _line[_lineNdx++] = ch;
         }
         else
         {
-          //we've overlowed
+          //we've overflowed
           _lineNdx = 0;
           gl_state = 0;
         }
@@ -337,20 +340,94 @@ public:
 
     else if (jdoc["write"])
     {
-      //process file write message
+      //process file write message. Decode first and only write if the decoded
+      //length exactly matches the caller's requested length.
       int fd = jdoc["write"]["fd"] | -1;
-      int len = jdoc["write"]["len"] | -1;
-      strncpy(_strBuff, jdoc["Write"]["data"], MAX_STR_LEN);
-      ourBase64.decode((char *)_buff, _strBuff, strlen(_strBuff));
-      //limit our max # of write bytes
-      len = (len > MAX_READ_LEN) ? MAX_READ_LEN : len;
+      int requestedLen = jdoc["write"]["len"] | -1;
+      requestedLen = (requestedLen > MAX_READ_LEN) ? MAX_READ_LEN : requestedLen;
+
+      const char *encoded = jdoc["Write"]["data"] | "";
+      int encodedLen = strlen(encoded);
+      int decodedLen = ourBase64.decode((char *)_buff, (char *)encoded, encodedLen);
+
       int writeLen = -1;
-      if (_currFile && (fd == _currFd) && (len > 0))
+      if (_currFile && (fd == _currFd) && (requestedLen > 0) &&
+          (decodedLen == requestedLen))
       {
-        writeLen = _currFile.write(_buff, len);
+        writeLen = _currFile.write(_buff, decodedLen);
       }
       JsonObject reply = jreply["write"].to<JsonObject>();
       reply["fd"] = fd;
+      reply["len"] = writeLen;
+    }
+
+    // Fast path used by the Z80/CP-M virtual disks. One JSON request contains
+    // one complete 512-byte sector, so open/seek/read-or-write/close happen
+    // locally on the Teensy instead of requiring several UART round trips.
+    else if (jdoc["disk_read"])
+    {
+      int drive = jdoc["disk_read"]["drive"] | -1;
+      uint32_t sector = jdoc["disk_read"]["sector"] | 0;
+      int readLen = -1;
+      _strBuff[0] = 0;
+
+      if (drive >= 0 && drive < 26)
+      {
+        char drivePath[] = "/cpm/disks/A.dsk";
+        drivePath[11] = (char)('A' + drive);
+        FsFile diskFile = SD.open(drivePath, O_RDONLY);
+        if (diskFile)
+        {
+          if (diskFile.seek(sector * (uint32_t)DISK_SECTOR_LEN))
+          {
+            readLen = diskFile.read(_buff, DISK_SECTOR_LEN);
+            if (readLen == DISK_SECTOR_LEN)
+            {
+              int encodedLen = ourBase64.encode(_strBuff, (char *)_buff, readLen);
+              if (encodedLen < 0)
+              {
+                readLen = -1;
+                _strBuff[0] = 0;
+              }
+            }
+          }
+          diskFile.close();
+        }
+      }
+
+      JsonObject reply = jreply["disk_read"].to<JsonObject>();
+      reply["drive"] = drive;
+      reply["sector"] = sector;
+      reply["len"] = readLen;
+      reply["data"] = _strBuff;
+    }
+
+    else if (jdoc["disk_write"])
+    {
+      int drive = jdoc["disk_write"]["drive"] | -1;
+      uint32_t sector = jdoc["disk_write"]["sector"] | 0;
+      const char *encoded = jdoc["disk_write"]["data"] | "";
+      int decodedLen = ourBase64.decode((char *)_buff, (char *)encoded, strlen(encoded));
+      int writeLen = -1;
+
+      if (drive >= 0 && drive < 26 && decodedLen == DISK_SECTOR_LEN)
+      {
+        char drivePath[] = "/cpm/disks/A.dsk";
+        drivePath[11] = (char)('A' + drive);
+        FsFile diskFile = SD.open(drivePath, O_RDWR);
+        if (diskFile)
+        {
+          if (diskFile.seek(sector * (uint32_t)DISK_SECTOR_LEN))
+          {
+            writeLen = diskFile.write(_buff, DISK_SECTOR_LEN);
+          }
+          diskFile.close();
+        }
+      }
+
+      JsonObject reply = jreply["disk_write"].to<JsonObject>();
+      reply["drive"] = drive;
+      reply["sector"] = sector;
       reply["len"] = writeLen;
     }
 
@@ -482,12 +559,7 @@ private:
   FsFile _currFile;
   int _currFd = -1;
   uint8_t _buff[MAX_READ_LEN];
-  char _strBuff[MAX_STR_LEN+2];   //  +2 to try and fix this error message:
-                                  //  include/EBTKS_ESP.h:322:14: warning: 'char* strncpy(char*, const char*, size_t)' specified bound 4096 equals destination size [-Wstringop-truncation]
-                                  //  322 |       strncpy(_strBuff, jdoc["Write"]["data"], MAX_STR_LEN);
-                                  //
-                                  //  Yep, no more error message. I think the issues is that it could result in a string in _strBuff without a trailing 0x00
+  char _strBuff[MAX_STR_LEN+2];
   CircBuff kbuff;
 };
-
 
