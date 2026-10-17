@@ -34,6 +34,17 @@ inline uint8_t ebtksSpiTestByte(uint16_t index, uint8_t seq,
   }
 }
 
+// Reverse (ESP32 -> Teensy) data deliberately differs from MOSI, even for
+// constant-value patterns: a loopback or crossed wire must not appear valid.
+// This exact function is independently duplicated in the ESP32 test header.
+inline uint8_t ebtksSpiTestReverseByte(uint16_t index, uint8_t seq,
+                                       uint16_t block, uint8_t pattern)
+{
+  return (uint8_t)(ebtksSpiTestByte(index, (uint8_t)(seq ^ 0xA7U),
+                                   block, pattern) ^
+                   (uint8_t)(0x5AU + index * 11U + block * 7U));
+}
+
 inline uint16_t ebtksSpiTestCrcByte(uint16_t crc, uint8_t value)
 {
   crc ^= value;
@@ -55,10 +66,18 @@ inline void ebtksSpiTestInit()
 // Each UART spi_probe command corresponds to exactly ONE armed ESP DMA
 // transaction. The next probe is sent only after UART confirmation, so
 // successive sectors do not rely on detecting a short READY-low pulse.
+// Returns whether a 512-byte SPI transaction completed, independently of
+// any received-data mismatch. Such a mismatch is reported to the ESP32 via
+// firstMisoMismatch / misoCrc, not confused with a READY timeout.
+// Full-duplex remains optional; omitting bidi preserves the proven MOSI test.
 inline bool ebtksSpiTestRead(uint8_t sequence, uint16_t block, uint8_t pattern,
-                             uint32_t hz, uint16_t &crc, uint32_t &elapsedUs)
+                             uint32_t hz, bool bidi, uint16_t &mosiCrc,
+                             uint16_t &misoCrc, int &firstMisoMismatch,
+                             uint32_t &elapsedUs)
 {
-  crc = 0xFFFF;
+  mosiCrc = 0xFFFF;
+  misoCrc = bidi ? 0xFFFF : 0;
+  firstMisoMismatch = -1;
   elapsedUs = 0;
   if (!ebtksSpiTestValidHz(hz) || pattern > 4) return false;
   ebtksSpiTestInit();
@@ -75,8 +94,14 @@ inline bool ebtksSpiTestRead(uint8_t sequence, uint16_t block, uint8_t pattern,
   const uint32_t startUs = micros();
   for (uint16_t i = 0; i < EBTKS_SPI_TEST_SIZE; ++i) {
     const uint8_t value = ebtksSpiTestByte(i, sequence, block, pattern);
-    SPI.transfer(value); // Receive-only ESP32 slave DMA.
-    crc = ebtksSpiTestCrcByte(crc, value);
+    const uint8_t incoming = SPI.transfer(value);
+    mosiCrc = ebtksSpiTestCrcByte(mosiCrc, value);
+    if (bidi) {
+      misoCrc = ebtksSpiTestCrcByte(misoCrc, incoming);
+      if (firstMisoMismatch < 0 &&
+          incoming != ebtksSpiTestReverseByte(i, sequence, block, pattern))
+        firstMisoMismatch = i;
+    }
   }
   elapsedUs = (uint32_t)(micros() - startUs);
   digitalWriteFast(EBTKS_SPI_TEST_CS, HIGH);
