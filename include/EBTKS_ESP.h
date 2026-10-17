@@ -13,6 +13,7 @@
 #include "ArduinoJson.h"
 #include "Base64.h"
 #include "DirLine.h"
+#include "EBTKS_SPI_Test.h"
 
 Base64Class ourBase64;
 DirLine dl;
@@ -358,6 +359,28 @@ public:
       JsonObject reply = jreply["write"].to<JsonObject>();
       reply["fd"] = fd;
       reply["len"] = writeLen;
+    }
+
+    // Optional CN3 SPI read diagnostic. Not used by normal disk traffic.
+    // The ESP32 has armed its SPI slave transaction BEFORE sending this UART
+    // JSON command. Return the CRC and elapsed time over existing UART.
+    else if (jdoc["spi_probe"])
+    {
+      const int requestedLen = jdoc["spi_probe"]["len"] | 0;
+      const int requestedHz = jdoc["spi_probe"]["hz"] | 0;
+      const uint8_t sequence = (uint8_t)(jdoc["spi_probe"]["seq"] | 0);
+      uint16_t crc = 0;
+      uint32_t elapsedUs = 0;
+      bool ok = false;
+      if (requestedLen == EBTKS_SPI_TEST_SIZE && requestedHz == (int)EBTKS_SPI_TEST_HZ)
+        ok = ebtksSpiTestRead(sequence, crc, elapsedUs);
+
+      JsonObject reply = jreply["spi_probe"].to<JsonObject>();
+      reply["ok"] = ok;
+      reply["seq"] = sequence;
+      reply["len"] = ok ? EBTKS_SPI_TEST_SIZE : 0;
+      reply["crc"] = crc;
+      reply["us"] = elapsedUs;
     }
 
     // Fast path used by the Z80/CP-M virtual disks. One JSON request contains
