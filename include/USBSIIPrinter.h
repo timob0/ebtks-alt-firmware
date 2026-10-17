@@ -1,7 +1,40 @@
 #pragma once
 
 #include <Arduino.h>
+
+// SdFat and the Teensy core both define FILE_READ / FILE_WRITE, but with
+// different semantics.  Some EBTKS translation units include SdFat before
+// USBHost_t36, whose FS.h defines the same macros unconditionally and causes
+// redefinition warnings.
+//
+// Preserve any pre-existing SdFat definitions while USBHost_t36 (and FS.h)
+// are parsed, then restore them afterwards.  This keeps each library's own
+// expected semantics without changing EBTKS file-open behavior.
+#ifdef FILE_READ
+#pragma push_macro("FILE_READ")
+#undef FILE_READ
+#define EBTKS_RESTORE_FILE_READ
+#endif
+
+#ifdef FILE_WRITE
+#pragma push_macro("FILE_WRITE")
+#undef FILE_WRITE
+#define EBTKS_RESTORE_FILE_WRITE
+#endif
+
 #include <USBHost_t36.h>
+
+#ifdef EBTKS_RESTORE_FILE_READ
+#undef FILE_READ
+#pragma pop_macro("FILE_READ")
+#undef EBTKS_RESTORE_FILE_READ
+#endif
+
+#ifdef EBTKS_RESTORE_FILE_WRITE
+#undef FILE_WRITE
+#pragma pop_macro("FILE_WRITE")
+#undef EBTKS_RESTORE_FILE_WRITE
+#endif
 
 /**
  * Minimal USBHost_t36 driver for the Seiko IFD501-01UK USB interface
