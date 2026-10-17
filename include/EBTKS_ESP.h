@@ -79,7 +79,6 @@ class CircBuff
 //
 //  Stream class that computes a crc on the stream
 //
-
 class CrcStream : public Stream
 {
 public:
@@ -254,7 +253,7 @@ public:
     //StaticJsonDocument<6000> jreply;
 
     //
-    //  ArduinoJson 7 , JsonDocuments are elastic, so don't need size, are allocated on heap 
+    //  ArduinoJson 7 , JsonDocuments are elastic, so don't need size, are allocated on heap
     //
     JsonDocument jdoc;
     JsonDocument jreply;
@@ -364,34 +363,58 @@ public:
     // Fast path used by the Z80/CP-M virtual disks. One JSON request contains
     // one complete 512-byte sector, so open/seek/read-or-write/close happen
     // locally on the Teensy instead of requiring several UART round trips.
+    // Newer ESP32 firmware may also provide an explicit image path.  Requests
+    // without a path retain the historical /cpm/disks/<drive>.dsk behaviour.
     else if (jdoc["disk_read"])
     {
       int drive = jdoc["disk_read"]["drive"] | -1;
       uint32_t sector = jdoc["disk_read"]["sector"] | 0;
+      const char *requestedPath = jdoc["disk_read"]["path"] | "";
       int readLen = -1;
       _strBuff[0] = 0;
 
       if (drive >= 0 && drive < 26)
       {
-        char drivePath[] = "/cpm/disks/A.dsk";
-        drivePath[11] = (char)('A' + drive);
-        FsFile diskFile = SD.open(drivePath, O_RDONLY);
-        if (diskFile)
+        char diskPath[128] = {};
+        bool pathOk = false;
+        if (requestedPath[0])
         {
-          if (diskFile.seek(sector * (uint32_t)DISK_SECTOR_LEN))
+          const char *root = "/cpm/disks/";
+          size_t pathLen = strlen(requestedPath);
+          if (!strncmp(requestedPath, root, strlen(root)) &&
+              !strstr(requestedPath, "..") && pathLen < sizeof(diskPath))
           {
-            readLen = diskFile.read(_buff, DISK_SECTOR_LEN);
-            if (readLen == DISK_SECTOR_LEN)
+            strlcpy(diskPath, requestedPath, sizeof(diskPath));
+            pathOk = true;
+          }
+        }
+        else
+        {
+          strlcpy(diskPath, "/cpm/disks/A.dsk", sizeof(diskPath));
+          diskPath[11] = (char)('A' + drive);
+          pathOk = true;
+        }
+
+        if (pathOk)
+        {
+          FsFile diskFile = SD.open(diskPath, O_RDONLY);
+          if (diskFile)
+          {
+            if (diskFile.seek(sector * (uint32_t)DISK_SECTOR_LEN))
             {
-              int encodedLen = ourBase64.encode(_strBuff, (char *)_buff, readLen);
-              if (encodedLen < 0)
+              readLen = diskFile.read(_buff, DISK_SECTOR_LEN);
+              if (readLen == DISK_SECTOR_LEN)
               {
-                readLen = -1;
-                _strBuff[0] = 0;
+                int encodedLen = ourBase64.encode(_strBuff, (char *)_buff, readLen);
+                if (encodedLen < 0)
+                {
+                  readLen = -1;
+                  _strBuff[0] = 0;
+                }
               }
             }
+            diskFile.close();
           }
-          diskFile.close();
         }
       }
 
@@ -406,22 +429,44 @@ public:
     {
       int drive = jdoc["disk_write"]["drive"] | -1;
       uint32_t sector = jdoc["disk_write"]["sector"] | 0;
+      const char *requestedPath = jdoc["disk_write"]["path"] | "";
       const char *encoded = jdoc["disk_write"]["data"] | "";
       int decodedLen = ourBase64.decode((char *)_buff, (char *)encoded, strlen(encoded));
       int writeLen = -1;
 
       if (drive >= 0 && drive < 26 && decodedLen == DISK_SECTOR_LEN)
       {
-        char drivePath[] = "/cpm/disks/A.dsk";
-        drivePath[11] = (char)('A' + drive);
-        FsFile diskFile = SD.open(drivePath, O_RDWR);
-        if (diskFile)
+        char diskPath[128] = {};
+        bool pathOk = false;
+        if (requestedPath[0])
         {
-          if (diskFile.seek(sector * (uint32_t)DISK_SECTOR_LEN))
+          const char *root = "/cpm/disks/";
+          size_t pathLen = strlen(requestedPath);
+          if (!strncmp(requestedPath, root, strlen(root)) &&
+              !strstr(requestedPath, "..") && pathLen < sizeof(diskPath))
           {
-            writeLen = diskFile.write(_buff, DISK_SECTOR_LEN);
+            strlcpy(diskPath, requestedPath, sizeof(diskPath));
+            pathOk = true;
           }
-          diskFile.close();
+        }
+        else
+        {
+          strlcpy(diskPath, "/cpm/disks/A.dsk", sizeof(diskPath));
+          diskPath[11] = (char)('A' + drive);
+          pathOk = true;
+        }
+
+        if (pathOk)
+        {
+          FsFile diskFile = SD.open(diskPath, O_RDWR);
+          if (diskFile)
+          {
+            if (diskFile.seek(sector * (uint32_t)DISK_SECTOR_LEN))
+            {
+              writeLen = diskFile.write(_buff, DISK_SECTOR_LEN);
+            }
+            diskFile.close();
+          }
         }
       }
 
@@ -562,4 +607,3 @@ private:
   char _strBuff[MAX_STR_LEN+2];
   CircBuff kbuff;
 };
-
