@@ -367,17 +367,28 @@ public:
     else if (jdoc["spi_probe"])
     {
       const int requestedLen = jdoc["spi_probe"]["len"] | 0;
-      const int requestedHz = jdoc["spi_probe"]["hz"] | 0;
-      const uint8_t sequence = (uint8_t)(jdoc["spi_probe"]["seq"] | 0);
+      const uint32_t requestedHz = jdoc["spi_probe"]["hz"] | 0UL;
+      const int requestedSeq = jdoc["spi_probe"]["seq"] | -1;
+      const int requestedBlock = jdoc["spi_probe"]["block"] | 0;
+      const int requestedPattern = jdoc["spi_probe"]["pattern"] | 0;
       uint16_t crc = 0;
       uint32_t elapsedUs = 0;
       bool ok = false;
-      if (requestedLen == EBTKS_SPI_TEST_SIZE && requestedHz == (int)EBTKS_SPI_TEST_HZ)
-        ok = ebtksSpiTestRead(sequence, crc, elapsedUs);
+      if (requestedLen == EBTKS_SPI_TEST_SIZE &&
+          ebtksSpiTestValidHz(requestedHz) &&
+          requestedSeq >= 0 && requestedSeq <= 255 &&
+          requestedBlock >= 0 && requestedBlock <= 65535 &&
+          requestedPattern >= 0 && requestedPattern <= 4) {
+        ok = ebtksSpiTestRead((uint8_t)requestedSeq, (uint16_t)requestedBlock,
+                              (uint8_t)requestedPattern, requestedHz, crc, elapsedUs);
+      }
 
       JsonObject reply = jreply["spi_probe"].to<JsonObject>();
       reply["ok"] = ok;
-      reply["seq"] = sequence;
+      reply["seq"] = requestedSeq;
+      reply["block"] = requestedBlock;
+      reply["pattern"] = requestedPattern;
+      reply["hz"] = requestedHz;
       reply["len"] = ok ? EBTKS_SPI_TEST_SIZE : 0;
       reply["crc"] = crc;
       reply["us"] = elapsedUs;
