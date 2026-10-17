@@ -3,7 +3,7 @@
 // Experimental diagnostic ONLY; invoked via JSON {"spi_probe":{...}}.
 // Does not access SD, CP/M drives, or the HP bus. SPI clocks only on demand.
 // CN3: T11=33 MOSI, T12=29 MISO, T13=24 SCK, T26=30 CS_N,
-//       T06=26 ESP_READY input. CS_N external pullup is on ESP32 GPIO35.
+//       T06=26 ESP_READY input. CS_N external pullup is on ESP32 GPIO32.
 #include <Arduino.h>
 #include <SPI.h>
 
