@@ -363,6 +363,18 @@ public:
       reply["len"] = writeLen;
     }
 
+    // Single 528-byte reverse-SPI RAM test. Absolutely no SD access.
+    else if (jdoc["spi_image_ram"])
+    {
+      int session=jdoc["spi_image_ram"]["session"] | 0;
+      uint16_t crc=0;
+      const char *reason="bad_session";
+      bool ok=session>0 && session<=65535 &&
+        ebtksImageRamProbe((uint16_t)session,crc,reason);
+      JsonObject r=jreply["spi_image_ram"].to<JsonObject>();
+      r["ok"]=ok;r["session"]=session;r["crc"]=crc;r["reason"]=reason;
+      r["ready_protocol"]="poll_low_v2";
+    }
     // Media Manager image transfer: protocol is opt-in and restricted to a
     // fresh, unmounted 8 MiB .dsk staging file. Normal CP/M writes unchanged.
     else if (jdoc["spi_image_begin"])
