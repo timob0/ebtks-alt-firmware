@@ -18,6 +18,7 @@ struct EbtksImageStage {
 };
 static EbtksImageStage ebtksImageStage;
 static constexpr uint32_t EBTKS_IMAGE_NATIVE_BYTES = 8388608UL;
+static constexpr uint32_t EBTKS_IMAGE_HP_LIF_BYTES = 630784UL;
 
 inline uint32_t ebtksImageCrc32(uint32_t crc, const uint8_t *p, size_t n) {
   for(size_t i=0;i<n;++i) {
@@ -29,7 +30,9 @@ inline uint32_t ebtksImageCrc32(uint32_t crc, const uint8_t *p, size_t n) {
 inline bool ebtksImageNameOk(const char *name) {
   if (!name) return false;
   const size_t n=strlen(name);
-  if(n<5 || n>55 || strcasecmp(name+n-4,".dsk")) return false;
+  if(n<5 || n>55 ||
+     (strcasecmp(name+n-4,".dsk") && strcasecmp(name+n-4,".lif")))
+    return false;
   for(size_t i=0;i<n-4;++i) {
     char c=name[i];
     if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||
@@ -51,7 +54,11 @@ inline void ebtksImageReset(bool removeStaging) {
 inline bool ebtksImageBegin(const char *name, uint32_t bytes,
                             uint16_t session, const char *&reason) {
   reason="bad_name_or_size";
-  if(!ebtksImageNameOk(name) || bytes!=EBTKS_IMAGE_NATIVE_BYTES || !session)
+  if(!ebtksImageNameOk(name) || !session ||
+     !((bytes==EBTKS_IMAGE_NATIVE_BYTES &&
+        !strcasecmp(name+strlen(name)-4,".dsk")) ||
+       (bytes==EBTKS_IMAGE_HP_LIF_BYTES &&
+        !strcasecmp(name+strlen(name)-4,".lif"))))
     return false;
   // Only one image writer per Teensy. Reset and delete a previous unfinished
   // file when beginning a NEW session (explicit restart).
@@ -161,8 +168,13 @@ inline bool ebtksImageFinish(uint16_t session,uint32_t expectedCrc,
   if(!verify) return false;
   uint8_t buf[512];
   uint32_t total=0,crc=0xFFFFFFFFUL;
+  bool lifHeaderValid=true;
   while(total<ebtksImageStage.expected) {
     if(verify.read(buf,sizeof(buf))!=(int)sizeof(buf)) break;
+    if(total==0 && ebtksImageStage.expected==EBTKS_IMAGE_HP_LIF_BYTES) {
+      lifHeaderValid=buf[0]==0x80 && buf[1]==0x00 &&
+                     !memcmp(buf+2,"HPCP/M",6);
+    }
     crc=ebtksImageCrc32(crc,buf,sizeof(buf));
     total+=sizeof(buf);
   }
@@ -171,6 +183,7 @@ inline bool ebtksImageFinish(uint16_t session,uint32_t expectedCrc,
   if(total!=ebtksImageStage.expected || readbackCrc!=expectedCrc) {
     reason="sd_readback_crc32_mismatch";return false;
   }
+  if(!lifHeaderValid) { reason="not_an_hp82900_cpm_lif"; return false; }
   reason="target_exists";
   if(SD.exists(ebtksImageStage.target)) return false;
   reason="publish_failed";
