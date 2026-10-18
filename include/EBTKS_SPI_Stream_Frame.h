@@ -13,6 +13,7 @@ static constexpr uint8_t VERSION = 1;
 static constexpr uint8_t KIND_SD_READ = 1;
 // Reserved for a future HP-85 alpha/graphics producer (not implemented):
 static constexpr uint8_t KIND_CRT = 2;
+static constexpr uint8_t KIND_IMAGE_UPLOAD = 3;
 static constexpr uint16_t FLAG_SOURCE_ERROR = 1;
 static constexpr size_t HEADER_BYTES = 16;
 static constexpr size_t PAYLOAD_BYTES = 512;
