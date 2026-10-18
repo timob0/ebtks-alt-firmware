@@ -443,6 +443,103 @@ public:
       reply["read"] = observedLevel;
     }
 
+    // Read-only diagnostic: first load ONE real SD sector into a dedicated
+    // buffer, then request a separate SPI transfer after ESP32 DMA is armed.
+    // This split prevents routine SD open/EOF errors from stranding DMA.
+    // Neither phase changes the normal CP/M disk_read/disk_write protocol.
+    else if (jdoc["spi_sd_prepare"])
+    {
+      _spiSdPrepared = false; // invalidate stale buffers on EVERY prepare
+      const char *path = jdoc["spi_sd_prepare"]["path"] | "";
+      const int sequence = jdoc["spi_sd_prepare"]["seq"] | -1;
+      const uint32_t sector = jdoc["spi_sd_prepare"]["sector"] | 0UL;
+      const uint32_t started = micros();
+      const char *reason = "invalid_path_or_sequence";
+      int readLen = -1;
+      uint32_t fileBytes = 0;
+      uint16_t crc = 0;
+
+      // Only files directly under the established CP/M disk directory.
+      // Reject traversal, nested directories and overlong paths.
+      const char *root = "/cpm/disks/";
+      const size_t rootLen = strlen(root);
+      const size_t pathLen = strlen(path);
+      if (sequence >= 0 && sequence <= 255 &&
+          pathLen > rootLen && pathLen < 120 &&
+          !strncmp(path, root, rootLen) &&
+          !strstr(path + rootLen, "..") &&
+          !strchr(path + rootLen, '/') &&
+          !strchr(path + rootLen, '\\') &&
+          sector <= (UINT32_MAX / DISK_SECTOR_LEN) - 1U)
+      {
+        reason = "sd_open_failed";
+        FsFile sdSectorFile = SD.open(path, O_RDONLY);
+        if (sdSectorFile)
+        {
+          const uint64_t size64 = sdSectorFile.size();
+          fileBytes = size64 > UINT32_MAX ? UINT32_MAX : (uint32_t)size64;
+          const uint32_t offset = sector * (uint32_t)DISK_SECTOR_LEN;
+          reason = "sector_out_of_range";
+          if ((uint64_t)offset + DISK_SECTOR_LEN <= size64)
+          {
+            reason = "sd_seek_failed";
+            if (sdSectorFile.seek(offset))
+            {
+              reason = "sd_short_read";
+              readLen = sdSectorFile.read(_spiSdSectorData, DISK_SECTOR_LEN);
+              if (readLen == DISK_SECTOR_LEN)
+              {
+                crc = 0xFFFF;
+                for (uint16_t i = 0; i < DISK_SECTOR_LEN; ++i)
+                  crc = ebtksSpiTestCrcByte(crc, _spiSdSectorData[i]);
+                _spiSdCrc = crc;
+                _spiSdSector = sector;
+                _spiSdSequence = (uint8_t)sequence;
+                _spiSdPrepared = true;
+                reason = "ready";
+              }
+            }
+          }
+          sdSectorFile.close();
+        }
+      }
+
+      JsonObject reply = jreply["spi_sd_prepare"].to<JsonObject>();
+      reply["ok"] = _spiSdPrepared;
+      reply["seq"] = sequence;
+      reply["sector"] = sector;
+      reply["len"] = readLen;
+      reply["crc"] = crc;
+      reply["sd_us"] = (uint32_t)(micros() - started);
+      reply["file_size"] = fileBytes;
+      reply["reason"] = reason;
+    }
+    else if (jdoc["spi_sd_send"])
+    {
+      const int sequence = jdoc["spi_sd_send"]["seq"] | -1;
+      const uint32_t sector = jdoc["spi_sd_send"]["sector"] | 0UL;
+      const bool valid = _spiSdPrepared && sequence >= 0 && sequence <= 255 &&
+                         _spiSdSequence == (uint8_t)sequence &&
+                         _spiSdSector == sector;
+      // Consume the preparation token before sending. No stale replay.
+      _spiSdPrepared = false;
+      uint16_t sentCrc = 0;
+      uint32_t spiUs = 0;
+      const bool transferred = valid &&
+          ebtksSpiTestSendSdSector(_spiSdSectorData, sentCrc, spiUs);
+
+      JsonObject reply = jreply["spi_sd_send"].to<JsonObject>();
+      reply["ok"] = transferred && sentCrc == _spiSdCrc;
+      reply["seq"] = sequence;
+      reply["sector"] = sector;
+      reply["len"] = transferred ? DISK_SECTOR_LEN : 0;
+      reply["crc"] = sentCrc;
+      reply["us"] = spiUs;
+      reply["reason"] = !valid ? "no_matching_prepared_sector" :
+                        !transferred ? "spi_ready_timeout" :
+                        sentCrc != _spiSdCrc ? "transmit_crc_changed" : "sent";
+    }
+
     // Fast path used by the Z80/CP-M virtual disks. One JSON request contains
     // one complete 512-byte sector, so open/seek/read-or-write/close happen
     // locally on the Teensy instead of requiring several UART round trips.
@@ -687,6 +784,13 @@ private:
   FsFile _currFile;
   int _currFd = -1;
   uint8_t _buff[MAX_READ_LEN];
+  // Dedicated 512-byte staging area for the opt-in read-only SPI SD test.
+  // Kept between two separate UART commands; never used by CP/M disk I/O.
+  uint8_t _spiSdSectorData[DISK_SECTOR_LEN] = {};
+  uint32_t _spiSdSector = 0;
+  uint16_t _spiSdCrc = 0;
+  uint8_t _spiSdSequence = 0;
+  bool _spiSdPrepared = false;
   char _strBuff[MAX_STR_LEN+2];
   CircBuff kbuff;
 };
