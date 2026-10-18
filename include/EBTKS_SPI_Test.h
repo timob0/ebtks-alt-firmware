@@ -113,3 +113,38 @@ inline bool ebtksSpiTestRead(uint8_t sequence, uint16_t block, uint8_t pattern,
   SPI.endTransaction();
   return true;
 }
+
+// Read-only SD sector transport diagnostic, separate from the synthetic probe.
+// The caller has already read exactly 512 bytes from SD and saved its CRC.
+// Only after ESP32 slave DMA has been armed does this function clock data.
+// DO NOT disable interrupts: SIMON85 and the HP-85 bus must keep running.
+// Production CP/M disk transport is deliberately unchanged.
+inline bool ebtksSpiTestSendSdSector(const uint8_t *sectorData,
+                                     uint16_t &transmitCrc, uint32_t &elapsedUs)
+{
+  transmitCrc = 0xFFFF;
+  elapsedUs = 0;
+  if (!sectorData) return false;
+  ebtksSpiTestInit();
+
+  const uint32_t started = millis();
+  while (!digitalRead(EBTKS_SPI_TEST_READY)) {
+    if ((uint32_t)(millis() - started) > 500) return false;
+  }
+
+  // Conservative configuration for first read-only SD / SPI experiments:
+  // SPI0 master, MODE0, 4 MHz. Matching ESP32 slave uses MODE0.
+  SPI.beginTransaction(SPISettings(4000000UL, MSBFIRST, SPI_MODE0));
+  digitalWriteFast(EBTKS_SPI_TEST_CS, LOW);
+  delayMicroseconds(3);
+  const uint32_t startUs = micros();
+  for (uint16_t i = 0; i < EBTKS_SPI_TEST_SIZE; ++i) {
+    const uint8_t b = sectorData[i];
+    SPI.transfer(b);
+    transmitCrc = ebtksSpiTestCrcByte(transmitCrc, b);
+  }
+  elapsedUs = (uint32_t)(micros() - startUs);
+  digitalWriteFast(EBTKS_SPI_TEST_CS, HIGH);
+  SPI.endTransaction();
+  return true;
+}
