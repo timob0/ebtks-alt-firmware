@@ -14,6 +14,7 @@
 #include "Base64.h"
 #include "DirLine.h"
 #include "EBTKS_SPI_Test.h"
+#include "EBTKS_SPI_Stream.h"
 
 Base64Class ourBase64;
 DirLine dl;
@@ -443,6 +444,131 @@ public:
       reply["read"] = observedLevel;
     }
 
+    // Batched generic SPI stream: control on UART, reusable binary frame on
+    // MOSI. SD is only the first data producer; CRT may be added later.
+    // UART PREPARE preflights the entire SD span so no DMA is armed on EOF.
+    else if (jdoc["spi_stream_prepare"])
+    {
+      _spiStreamPrepared = false;
+      const char *path = jdoc["spi_stream_prepare"]["path"] | "";
+      const int session = jdoc["spi_stream_prepare"]["session"] | -1;
+      const uint32_t first = jdoc["spi_stream_prepare"]["first"] | UINT32_MAX;
+      const int count = jdoc["spi_stream_prepare"]["count"] | 0;
+      const char *root = "/cpm/disks/";
+      const size_t rootLen = strlen(root);
+      const size_t pathLen = strlen(path);
+      const bool nameOk = pathLen > rootLen && pathLen < sizeof(_spiStreamPath) &&
+            !strncmp(path, root, rootLen) && !strstr(path + rootLen, "..") &&
+            !strchr(path + rootLen, '/') && !strchr(path + rootLen, '\\');
+      uint32_t fileBytes = 0;
+      const char *reason = "invalid_request";
+      if (nameOk && session >= 0 && session <= 65535 &&
+          (count == 1 || count == 16 || count == 128) &&
+          first <= (UINT32_MAX / DISK_SECTOR_LEN) - (uint32_t)count)
+      {
+        reason = "sd_open_failed";
+        FsFile file = SD.open(path, O_RDONLY);
+        if (file)
+        {
+          const uint64_t size = file.size();
+          fileBytes = size > UINT32_MAX ? UINT32_MAX : (uint32_t)size;
+          reason = "sd_sector_range";
+          if (((uint64_t)first + (uint32_t)count) * DISK_SECTOR_LEN <= size)
+          {
+            strlcpy(_spiStreamPath, path, sizeof(_spiStreamPath));
+            _spiStreamFirst = first;
+            _spiStreamCount = (uint16_t)count;
+            _spiStreamSession = (uint16_t)session;
+            _spiStreamPrepared = true;
+            reason = "ready";
+          }
+          file.close();
+        }
+      }
+      JsonObject reply = jreply["spi_stream_prepare"].to<JsonObject>();
+      reply["ok"] = _spiStreamPrepared;
+      reply["session"] = session;
+      reply["first"] = first;
+      reply["count"] = count;
+      reply["file_size"] = fileBytes;
+      reply["reason"] = reason;
+    }
+    else if (jdoc["spi_stream_send"])
+    {
+      const int session = jdoc["spi_stream_send"]["session"] | -1;
+      const bool valid = _spiStreamPrepared && session >= 0 && session <= 65535 &&
+                         _spiStreamSession == (uint16_t)session;
+      // One-use session token, even on an invalid attempt.
+      _spiStreamPrepared = false;
+      uint16_t aggregate = 0xFFFF;
+      uint32_t sdUs = 0, spiUs = 0, minUs = 0, maxUs = 0;
+      uint16_t frames = 0, good = 0;
+      int firstError = -1;
+      const char *reason = valid ? "ok" : "unprepared_session";
+
+      if (valid)
+      {
+        const uint32_t opened = micros();
+        FsFile file = SD.open(_spiStreamPath, O_RDONLY);
+        bool ioOk = (bool)file;
+        if (ioOk) ioOk = file.seek(_spiStreamFirst * (uint32_t)DISK_SECTOR_LEN);
+        sdUs += (uint32_t)(micros() - opened);
+
+        for (uint16_t block = 0; block < _spiStreamCount; ++block)
+        {
+          // Preserve one SPI frame per requested sector even on SD errors,
+          // rather than leave an already-armed ESP DMA transaction stranded.
+          uint16_t flags = 0;
+          uint8_t *payload = _spiStreamFrame + EbtksStream::HEADER_BYTES;
+          const uint32_t rdStart = micros();
+          if (!ioOk || file.read(payload, DISK_SECTOR_LEN) != DISK_SECTOR_LEN)
+          {
+            ioOk = false;
+            flags |= EbtksStream::FLAG_SOURCE_ERROR;
+            memset(payload, 0, DISK_SECTOR_LEN);
+            if (firstError < 0) {
+              firstError = block;
+              reason = "sd_read_failed";
+            }
+          }
+          sdUs += (uint32_t)(micros() - rdStart);
+
+          EbtksStream::stamp(_spiStreamFrame, EbtksStream::KIND_SD_READ,
+                             _spiStreamSession, block, flags);
+          uint32_t elapsed = 0;
+          if (!ebtksSpiStreamSendFrame(_spiStreamFrame, elapsed))
+          {
+            if (firstError < 0) firstError = block;
+            reason = "spi_ready_timeout";
+            break;
+          }
+          ++frames;
+          spiUs += elapsed;
+          if (minUs == 0 || elapsed < minUs) minUs = elapsed;
+          if (elapsed > maxUs) maxUs = elapsed;
+          if (!flags) {
+            ++good;
+            aggregate = EbtksStream::crc16(payload, DISK_SECTOR_LEN, aggregate);
+          }
+        }
+        if (file) file.close();
+      }
+
+      JsonObject reply = jreply["spi_stream_send"].to<JsonObject>();
+      reply["ok"] = valid && frames == _spiStreamCount && good == _spiStreamCount;
+      reply["session"] = session;
+      reply["frames"] = frames;
+      reply["good"] = good;
+      reply["count"] = valid ? _spiStreamCount : 0;
+      reply["aggregate_crc"] = aggregate;
+      reply["sd_us"] = sdUs;
+      reply["spi_us"] = spiUs;
+      reply["min_us"] = minUs;
+      reply["max_us"] = maxUs;
+      reply["first_error"] = firstError;
+      reply["reason"] = reason;
+    }
+
     // Read-only diagnostic: first load ONE real SD sector into a dedicated
     // buffer, then request a separate SPI transfer after ESP32 DMA is armed.
     // This split prevents routine SD open/EOF errors from stranding DMA.
@@ -784,6 +910,15 @@ private:
   FsFile _currFile;
   int _currFd = -1;
   uint8_t _buff[MAX_READ_LEN];
+  // Reusable generic stream staging frame. Always aligned 4 bytes for
+  // consistency; Teensy SPI.transfer clocks bytes directly (not DMA).
+  alignas(4) uint8_t _spiStreamFrame[EbtksStream::FRAME_BYTES] = {};
+  char _spiStreamPath[120] = {};
+  uint32_t _spiStreamFirst = 0;
+  uint16_t _spiStreamCount = 0;
+  uint16_t _spiStreamSession = 0;
+  bool _spiStreamPrepared = false;
+
   // Dedicated 512-byte staging area for the opt-in read-only SPI SD test.
   // Kept between two separate UART commands; never used by CP/M disk I/O.
   uint8_t _spiSdSectorData[DISK_SECTOR_LEN] = {};
