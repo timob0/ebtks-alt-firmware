@@ -419,6 +419,30 @@ public:
       reply["us"] = elapsedUs;
     }
 
+    // Isolated GPIO-level CN3 MISO continuity diagnostic. This does NOT
+    // transfer SPI data or touch SD. The ESP32 has first released SPI2 and
+    // drives GPIO17 as plain output at the requested level. Temporarily
+    // release Teensy SPI0's pin mux to sample physical T12 (pin 12), then
+    // restore SPI0. This safely distinguishes a bad pin/wire from SPI DMA.
+    else if (jdoc["spi_gpio_probe"])
+    {
+      const int requestedLevel = jdoc["spi_gpio_probe"]["level"] | -1;
+      int observedLevel = -1;
+      if (requestedLevel == 0 || requestedLevel == 1)
+      {
+        ebtksSpiTestInit(); // leave CS_N high, initialize SPI0 if needed
+        SPI.end();
+        pinMode(12, INPUT_PULLDOWN); // T12 / CN3-29
+        delayMicroseconds(100);
+        observedLevel = digitalReadFast(12) ? 1 : 0;
+        SPI.begin(); // restore hardware SPI0 for subsequent normal tests
+      }
+      JsonObject reply = jreply["spi_gpio_probe"].to<JsonObject>();
+      reply["ok"] = observedLevel == requestedLevel;
+      reply["level"] = requestedLevel;
+      reply["read"] = observedLevel;
+    }
+
     // Fast path used by the Z80/CP-M virtual disks. One JSON request contains
     // one complete 512-byte sector, so open/seek/read-or-write/close happen
     // locally on the Teensy instead of requiring several UART round trips.
