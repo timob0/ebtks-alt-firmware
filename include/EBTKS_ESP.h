@@ -508,8 +508,8 @@ public:
 
       if (valid)
       {
-        // The first DMA RX descriptor is queued before the UART send.
-        // Arm the READY edge latch before sending any framed SPI bytes.
+        // Initialize diagnostic polling counters. Do not attach ANY
+        // additional IRQ: IRQ_GPIO6789 is owned by the HP-85 bus ISR.
         ebtksSpiStreamBeginSession();
         const uint32_t opened = micros();
         FsFile file = SD.open(_spiStreamPath, O_RDONLY);
@@ -539,11 +539,12 @@ public:
           EbtksStream::stamp(_spiStreamFrame, EbtksStream::KIND_SD_READ,
                              _spiStreamSession, block, flags);
           uint32_t elapsed = 0;
-          if (!ebtksSpiStreamSendFrame(_spiStreamFrame, elapsed))
+          if (!ebtksSpiStreamSendFrame(_spiStreamFrame, elapsed,
+                                       block + 1U < _spiStreamCount))
           {
             if (firstError < 0) firstError = block;
             reason = ebtksSpiStreamWaitFailure == 1 ?
-                     "ready_falling_edge_timeout" :
+                     "ready_low_timeout" :
                      ebtksSpiStreamWaitFailure == 2 ?
                      "ready_high_timeout" : "spi_ready_timeout";
             break;
@@ -572,7 +573,7 @@ public:
       reply["min_us"] = minUs;
       reply["max_us"] = maxUs;
       reply["first_error"] = firstError;
-      reply["ready_falling_edges"] = ebtksSpiStreamReadyFalls;
+      reply["ready_low_phases"] = ebtksSpiStreamReadyLowPhases;
       reply["ready_wait_us"] = ebtksSpiStreamReadyWaitUs;
       reply["ready_max_wait_us"] = ebtksSpiStreamMaxReadyWaitUs;
       reply["ready_wait_failure"] = (unsigned)ebtksSpiStreamWaitFailure;
