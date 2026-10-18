@@ -422,7 +422,10 @@ public:
     else if (jdoc["spi_image_abort"])
     {
       int session=jdoc["spi_image_abort"]["session"] | 0;
-      bool ok=ebtksImageStage.active && session==ebtksImageStage.session;
+      // Session 0 is explicit operator recovery after an ESP32-only reboot.
+      // It never publishes a partial image; only closes/removes staged data.
+      bool ok=ebtksImageStage.active &&
+              (session==ebtksImageStage.session || session==0);
       if(ok) ebtksImageReset(true);
       JsonObject r=jreply["spi_image_abort"].to<JsonObject>();
       r["ok"]=ok;
