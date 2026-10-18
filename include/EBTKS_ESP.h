@@ -486,6 +486,9 @@ public:
         }
       }
       JsonObject reply = jreply["spi_stream_prepare"].to<JsonObject>();
+      // Prevent mismatched ESP32/Teensy revisions from starting a stream.
+      // v2 deliberately uses NO Arduino READY interrupt (HP bus IRQ clash).
+      reply["ready_protocol"] = "poll_low_v2";
       reply["ok"] = _spiStreamPrepared;
       reply["session"] = session;
       reply["first"] = first;
