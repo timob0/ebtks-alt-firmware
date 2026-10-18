@@ -179,3 +179,34 @@ inline bool ebtksImageFinish(uint16_t session,uint32_t expectedCrc,
   reason="ok";
   return true;
 }
+
+inline bool ebtksImageRamProbe(uint16_t session,uint16_t &crc,
+                               const char *&reason) {
+  crc=0xFFFF;reason="ready_timeout";
+  ebtksSpiTestInit();
+  const uint32_t started=micros();
+  while(!digitalReadFast(EBTKS_SPI_TEST_READY)) {
+    if((uint32_t)(micros()-started)>2000000UL)return false;
+  }
+  alignas(4) uint8_t frame[EbtksStream::FRAME_BYTES]={};
+  SPI.beginTransaction(SPISettings(4000000UL,MSBFIRST,SPI_MODE0));
+  digitalWriteFast(EBTKS_SPI_TEST_CS,LOW);
+  delayMicroseconds(3);
+  for(size_t i=0;i<EbtksStream::FRAME_BYTES;++i)frame[i]=SPI.transfer(0);
+  digitalWriteFast(EBTKS_SPI_TEST_CS,HIGH);
+  SPI.endTransaction();
+  auto check=EbtksStream::check(frame,EbtksStream::KIND_IMAGE_UPLOAD,
+                                session,0);
+  if(check!=EbtksStream::Check::OK) {
+    reason=EbtksStream::checkName(check);return false;
+  }
+  const uint8_t *payload=frame+EbtksStream::HEADER_BYTES;
+  crc=EbtksStream::crc16(payload,512);
+  for(size_t i=0;i<512;++i) {
+    if(payload[i]!=(uint8_t)((i*29U+session*7U+0x53U)&255U)) {
+      reason="payload_pattern_mismatch";return false;
+    }
+  }
+  reason="ok";
+  return true;
+}
