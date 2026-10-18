@@ -508,6 +508,9 @@ public:
 
       if (valid)
       {
+        // The first DMA RX descriptor is queued before the UART send.
+        // Arm the READY edge latch before sending any framed SPI bytes.
+        ebtksSpiStreamBeginSession();
         const uint32_t opened = micros();
         FsFile file = SD.open(_spiStreamPath, O_RDONLY);
         bool ioOk = (bool)file;
@@ -539,7 +542,10 @@ public:
           if (!ebtksSpiStreamSendFrame(_spiStreamFrame, elapsed))
           {
             if (firstError < 0) firstError = block;
-            reason = "spi_ready_timeout";
+            reason = ebtksSpiStreamWaitFailure == 1 ?
+                     "ready_falling_edge_timeout" :
+                     ebtksSpiStreamWaitFailure == 2 ?
+                     "ready_high_timeout" : "spi_ready_timeout";
             break;
           }
           ++frames;
@@ -566,6 +572,10 @@ public:
       reply["min_us"] = minUs;
       reply["max_us"] = maxUs;
       reply["first_error"] = firstError;
+      reply["ready_falling_edges"] = ebtksSpiStreamReadyFalls;
+      reply["ready_wait_us"] = ebtksSpiStreamReadyWaitUs;
+      reply["ready_max_wait_us"] = ebtksSpiStreamMaxReadyWaitUs;
+      reply["ready_wait_failure"] = (unsigned)ebtksSpiStreamWaitFailure;
       reply["reason"] = reason;
     }
 
