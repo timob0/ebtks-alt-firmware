@@ -2,7 +2,7 @@
 // Generic read-only framed SPI diagnostic, Teensy 4.1 master (4 MHz MODE0).
 // CRITICAL EBTKS COMPATIBILITY: NEVER attach a GPIO interrupt here.
 // The HP-85 bus is serviced by the custom IRQ_GPIO6789 / pinChange_isr;
-// Arduino attachInterrupt() on the READY GPIO disrupts that shared IRQ and
+// Registering an Arduino READY pin interrupt disrupts that shared IRQ and
 // can lock up the HP-85. READY is polled only, with interrupts untouched.
 #include <Arduino.h>
 #include <SPI.h>
