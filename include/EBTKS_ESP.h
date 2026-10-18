@@ -15,6 +15,7 @@
 #include "DirLine.h"
 #include "EBTKS_SPI_Test.h"
 #include "EBTKS_SPI_Stream.h"
+#include "EBTKS_SPI_Image.h"
 
 Base64Class ourBase64;
 DirLine dl;
@@ -360,6 +361,59 @@ public:
       JsonObject reply = jreply["write"].to<JsonObject>();
       reply["fd"] = fd;
       reply["len"] = writeLen;
+    }
+
+    // Media Manager image transfer: protocol is opt-in and restricted to a
+    // fresh, unmounted 8 MiB .dsk staging file. Normal CP/M writes unchanged.
+    else if (jdoc["spi_image_begin"])
+    {
+      const char *name = jdoc["spi_image_begin"]["name"] | "";
+      uint32_t bytes = jdoc["spi_image_begin"]["bytes"] | 0UL;
+      int session = jdoc["spi_image_begin"]["session"] | 0;
+      const char *reason = "invalid_session";
+      bool ok = session>0 && session<=65535 &&
+          ebtksImageBegin(name,bytes,(uint16_t)session,reason);
+      JsonObject r=jreply["spi_image_begin"].to<JsonObject>();
+      r["ok"]=ok; r["session"]=session; r["reason"]=reason;
+      r["ready_protocol"]="poll_low_v2";
+    }
+    else if (jdoc["spi_image_write"])
+    {
+      int session=jdoc["spi_image_write"]["session"] | 0;
+      uint32_t start=jdoc["spi_image_write"]["start"] | UINT32_MAX;
+      int count=jdoc["spi_image_write"]["count"] | 0;
+      uint16_t agg=0xFFFF,frames=0;
+      const char *reason="bad_parameters";
+      bool ok=false;
+      if(session>0 && session<=65535 && count>0 && count<=16)
+        ok=ebtksImageWrite((uint16_t)session,start,(uint16_t)count,
+                           agg,frames,reason);
+      JsonObject r=jreply["spi_image_write"].to<JsonObject>();
+      r["ok"]=ok; r["session"]=session; r["start"]=start;
+      r["count"]=count; r["frames"]=frames;
+      r["aggregate_crc"]=agg;
+      r["received"]=ebtksImageStage.received;
+      r["reason"]=reason;
+    }
+    else if (jdoc["spi_image_finish"])
+    {
+      int session=jdoc["spi_image_finish"]["session"] | 0;
+      uint32_t expected=jdoc["spi_image_finish"]["crc32"] | 0UL;
+      uint32_t readback=0;
+      const char *reason="bad_session";
+      bool ok=session>0 && session<=65535 &&
+        ebtksImageFinish((uint16_t)session,expected,readback,reason);
+      JsonObject r=jreply["spi_image_finish"].to<JsonObject>();
+      r["ok"]=ok; r["reason"]=reason; r["session"]=session;
+      r["crc32"]=readback;
+    }
+    else if (jdoc["spi_image_abort"])
+    {
+      int session=jdoc["spi_image_abort"]["session"] | 0;
+      bool ok=ebtksImageStage.active && session==ebtksImageStage.session;
+      if(ok) ebtksImageReset(true);
+      JsonObject r=jreply["spi_image_abort"].to<JsonObject>();
+      r["ok"]=ok;
     }
 
     // Optional CN3 SPI diagnostic: ESP32 DMA is armed BEFORE this UART
