@@ -20,8 +20,14 @@ inline void reset() {
 }
 inline void onControl(uint8_t value) {
   if(value!=0 && value!=1) return;
-  attached=(value==1);
-  reset();
+  if(value==1) {
+    // A new attachment starts a new session, discarding stale data.
+    reset();
+    attached=true;
+  } else {
+    // K8 detach must not drop characters already captured for CP/M.
+    attached=false;
+  }
 }
 inline void onKey(uint8_t key) {
   if(!attached) return;
