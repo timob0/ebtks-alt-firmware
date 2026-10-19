@@ -16,6 +16,7 @@
 #include "EBTKS_SPI_Test.h"
 #include "EBTKS_SPI_Stream.h"
 #include "EBTKS_SPI_Image.h"
+#include "EBTKS_CPM85_Keyboard.h" // ISR FIFO for HP-85 physical key events
 
 Base64Class ourBase64;
 DirLine dl;
@@ -898,6 +899,19 @@ public:
       reply["ok"] = true;
     }
 
+    else if (jdoc["cpm_keys"]) {
+      // Reply-only keyboard transport, serialized with existing disk UART
+      // transactions; never write unsolicited bytes onto Serial2.
+      JsonObject out=jreply["cpm_keys"].to<JsonObject>();
+      out["active"]=Cpm85Keys::isAttached();
+      out["overflow"]=Cpm85Keys::overflowCount();
+      JsonArray codes=out["keys"].to<JsonArray>();
+      for(uint8_t i=0;i<Cpm85Keys::kBatchMax;++i) {
+        int key=Cpm85Keys::pop();
+        if(key<0)break;
+        codes.add((uint8_t)key);
+      }
+    }
     else if (jdoc["keyboard"])
     {
       // expect an array of 1 or more keycodes (8bit) and insert them

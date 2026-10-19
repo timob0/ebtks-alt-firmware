@@ -1,0 +1,25 @@
+name: CPM85 Teensy firmware validation
+on:
+  push:
+    branches: [feature/cpm85-keyboard-forwarding]
+  workflow_dispatch:
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native HP-85 keyboard FIFO regression
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Itest/stubs -Iinclude test/cpm85_ring_native.cpp -o /tmp/cpm85_ring_native
+          /tmp/cpm85_ring_native
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build Teensy 4.1 firmware
+        run: pio run -e teensy41

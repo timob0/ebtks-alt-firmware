@@ -333,6 +333,11 @@ void setup() {
   pinMode(CORE_PIN_NEOPIX_TSY, OUTPUT); //  The single pin interface to the two WS2812B/E RGB LEDs
 
   setIOWriteFunc(0340, &ioWriteAuxROM_Alert); //  AUXROM Alert that a Mailbox/Buffer has been updated
+  // CPM85: adjacent, otherwise unused EBTKS extension I/O ports.
+  // 0341=0177741 raw HP key; 0342=0177742 attach (1)/detach (0).
+  // Both handlers only write to the bounded ISR FIFO: NO serial or SPI here.
+  setIOWriteFunc(0341, &onWriteCpm85Key);
+  setIOWriteFunc(0342, &onWriteCpm85Control);
   setIOReadFunc(0340, &onReadAuxROM_Alert);   //  Use HEYEBTKS to return identification string
 
   SCOPE_1_Pulser(4);     //  2/7/2021 This occurs about 285 us after the previous call to Pulser(5) (inc 10 us delay)
@@ -547,13 +552,10 @@ void loop() {
   }
 #endif
 
-  if (get_CRTRemote()) {
-    if ((systick_millis_count % 10) == 0) //  Only do this every 10 ms, although it may occur multiple times during that 1 ms
-    {                                     //  Note: if it turns out that we get buffer overflow between the Teensy and the ESP32
-                                          //  we will have to call this more often
-      esp32.poll();                       //  Access with "http://esp32_ebtks.local/"
-    }
-  }
+  // Always service an incoming ESP32 request, even if remote CRT is
+  // disabled in CONFIG.TXT: CP/M disk service and CPM85 keys need Serial2.
+  // Poll only if bytes are waiting; no idle JSON/deserialization overhead.
+  if (Serial2.available()) esp32.poll();
 
   // TB added USB Printer
   if (seikoPrinter.connected() && !usbPrinter_OK) {
