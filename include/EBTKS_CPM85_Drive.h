@@ -94,6 +94,19 @@ inline void onWriteCpm85DriveOpcode(uint8_t value) {Cpm85Drive::onOpcode(value);
 // EBTKS ioReadFuncPtr_t is bool (*)(void), NOT a byte-return callback.
 // Publish the byte through readData and return true so the HP bus ISR
 // actually drives the data bus (including value 0) during the read cycle.
+// TEMPORARY diagnostic only. Explicitly identify the firmware from the
+// HP-85 bus without depending on a successful UART command or mailbox state.
+// DO NOT run CPSTATUS/CPDMNT/CPDUMNT/CPRESET in this diagnostic build.
+#if defined(CPM85_DRIVE_IO_READ_SIGNATURE)
+inline bool onReadCpm85DriveState() {
+  readData = 0x5A;  // 90 decimal (ASCII Z), diagnostic signature
+  return true;
+}
+inline bool onReadCpm85DriveReply() {
+  readData = 0xA5;  // 165 decimal, different bit pattern
+  return true;
+}
+#else
 inline bool onReadCpm85DriveState() {
   readData = Cpm85Drive::onState();
   return true;
@@ -102,3 +115,4 @@ inline bool onReadCpm85DriveReply() {
   readData = Cpm85Drive::onReply();
   return true;
 }
+#endif
