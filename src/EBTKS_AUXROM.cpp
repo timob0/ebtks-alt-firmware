@@ -105,7 +105,11 @@ void ioWriteAuxROM_Alert(uint8_t val)                 //  This function is runni
 //  Return the identification string, 1 character per call
 //
 
+#if defined(CPM85_DRIVE_IO_READ_SIGNATURE)
+static char identification_string[] = "EBTKS IO-DIAG-R1 2026 - read 65509=90 and 65510=165";
+#else
 static char         identification_string[] = "EBTKS V1.0  2021 (C) Philip Freidin, Russell Bull, Everett Kaser";
+#endif
 static int          ident_string_index = 0;
 
 bool onReadAuxROM_Alert(void)
