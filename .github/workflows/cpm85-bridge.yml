@@ -1,7 +1,7 @@
 name: CPM85 Teensy firmware validation
 on:
   push:
-    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control]
+    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control, diagnostic/cpm85-io-read-signature]
   workflow_dispatch:
 jobs:
   native:
@@ -24,4 +24,9 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
       - name: Build Teensy 4.1 firmware
-        run: pio run -e teensy41
+        run: |
+          if [ "${{ github.ref_name }}" = "diagnostic/cpm85-io-read-signature" ]; then
+            PLATFORMIO_BUILD_FLAGS=-DCPM85_DRIVE_IO_READ_SIGNATURE pio run -e teensy41
+          else
+            pio run -e teensy41
+          fi
