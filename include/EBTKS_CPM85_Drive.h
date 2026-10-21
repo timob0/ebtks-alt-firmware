@@ -31,6 +31,13 @@ inline void onArgument(uint8_t value) {
   arguments[argumentLength++]=(char)value;
 }
 inline void onOpcode(uint8_t code) {
+  // 0 is an explicit HP-side timeout recovery/abort. A late ESP
+  // acknowledgement is then ignored because the mailbox is no longer busy.
+  if(code==0) {
+    state=0; operation=0; argumentLength=0; readIndex=replyLength=0;
+    lastOfferMs=0;
+    return;
+  }
   if(state!=0)return;
   if(code<1 || code>4){argumentLength=0;return;}
   arguments[argumentLength]=0;
