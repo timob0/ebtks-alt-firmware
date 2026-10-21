@@ -17,6 +17,7 @@
 #include "EBTKS_SPI_Stream.h"
 #include "EBTKS_SPI_Image.h"
 #include "EBTKS_CPM85_Keyboard.h" // ISR FIFO for HP-85 physical key events
+#include "EBTKS_CPM85_Drive.h" // separate bounded management mailbox
 
 Base64Class ourBase64;
 DirLine dl;
@@ -902,7 +903,9 @@ public:
     else if (jdoc["cpm_keys"]) {
       // Reply-only keyboard transport, serialized with existing disk UART
       // transactions; never write unsolicited bytes onto Serial2.
+      Cpm85Drive::receiveAck(jdoc["cpm_keys"]["ack"].as<JsonVariantConst>());
       JsonObject out=jreply["cpm_keys"].to<JsonObject>();
+      Cpm85Drive::offer(out);
       out["active"]=Cpm85Keys::isAttached();
       out["overflow"]=Cpm85Keys::overflowCount();
       JsonArray codes=out["keys"].to<JsonArray>();
