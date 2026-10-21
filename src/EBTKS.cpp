@@ -338,6 +338,11 @@ void setup() {
   // Both handlers only write to the bounded ISR FIFO: NO serial or SPI here.
   setIOWriteFunc(0341, &onWriteCpm85Key);
   setIOWriteFunc(0342, &onWriteCpm85Control);
+  // Drive mailbox callbacks only copy bytes; all serial work stays in loop().
+  setIOWriteFunc(0343, &onWriteCpm85DriveArgument);
+  setIOWriteFunc(0344, &onWriteCpm85DriveOpcode);
+  setIOReadFunc(0345, &onReadCpm85DriveState);
+  setIOReadFunc(0346, &onReadCpm85DriveReply);
   setIOReadFunc(0340, &onReadAuxROM_Alert);   //  Use HEYEBTKS to return identification string
 
   SCOPE_1_Pulser(4);     //  2/7/2021 This occurs about 285 us after the previous call to Pulser(5) (inc 10 us delay)
