@@ -91,5 +91,14 @@ inline void offer(JsonObject out) {
 
 inline void onWriteCpm85DriveArgument(uint8_t value) {Cpm85Drive::onArgument(value);}
 inline void onWriteCpm85DriveOpcode(uint8_t value) {Cpm85Drive::onOpcode(value);}
-inline uint8_t onReadCpm85DriveState() {return Cpm85Drive::onState();}
-inline uint8_t onReadCpm85DriveReply() {return Cpm85Drive::onReply();}
+// EBTKS ioReadFuncPtr_t is bool (*)(void), NOT a byte-return callback.
+// Publish the byte through readData and return true so the HP bus ISR
+// actually drives the data bus (including value 0) during the read cycle.
+inline bool onReadCpm85DriveState() {
+  readData = Cpm85Drive::onState();
+  return true;
+}
+inline bool onReadCpm85DriveReply() {
+  readData = Cpm85Drive::onReply();
+  return true;
+}
