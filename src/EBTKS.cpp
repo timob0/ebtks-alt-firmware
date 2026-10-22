@@ -561,6 +561,8 @@ void loop() {
   // disabled in CONFIG.TXT: CP/M disk service and CPM85 keys need Serial2.
   // Poll only if bytes are waiting; no idle JSON/deserialization overhead.
   if (Serial2.available()) esp32.poll();
+  // One bounded 4-KiB SD write per loop during CPDMK. No UART image payload.
+  Cpm85Image::service();
 
   // TB added USB Printer
   if (seikoPrinter.connected() && !usbPrinter_OK) {
