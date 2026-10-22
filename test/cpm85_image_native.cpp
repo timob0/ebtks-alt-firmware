@@ -6,16 +6,6 @@
 #include <string>
 #include <limits.h>
 
-inline size_t strlcpy(char *dst, const char *src, size_t capacity) {
-  const size_t n=std::strlen(src);
-  if(capacity) { const size_t take=std::min(n,capacity-1); std::memcpy(dst,src,take); dst[take]=0; }
-  return n;
-}
-inline size_t strlcat(char *dst,const char *src,size_t capacity) {
-  const size_t prior=std::strlen(dst), n=std::strlen(src);
-  if(prior<capacity)strlcpy(dst+prior,src,capacity-prior);
-  return prior+n;
-}
 struct FakeSlot { template<class T> FakeSlot &operator=(const T&) {return *this;} };
 struct JsonObject { FakeSlot operator[](const char*) {return {}; } };
 #include "EBTKS_CPM85_Image.h"
