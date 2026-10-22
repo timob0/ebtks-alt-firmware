@@ -16,6 +16,9 @@
 #include "EBTKS_SPI_Test.h"
 #include "EBTKS_SPI_Stream.h"
 #include "EBTKS_SPI_Image.h"
+#include "EBTKS_CPM85_Keyboard.h" // ISR FIFO for HP-85 physical key events
+#include "EBTKS_CPM85_Drive.h" // separate bounded management mailbox
+#include "EBTKS_CPM85_Image.h" // incremental Teensy-local 8 MiB disk creation
 
 Base64Class ourBase64;
 DirLine dl;
@@ -898,6 +901,31 @@ public:
       reply["ok"] = true;
     }
 
+    else if (jdoc["cpm_image"]) {
+      const char *action = jdoc["cpm_image"]["op"] | "";
+      if (!strcmp(action, "begin")) {
+        const char *name = jdoc["cpm_image"]["name"] | "";
+        Cpm85Image::begin(name);
+      }
+      // "status" leaves the job unchanged. Both return current state.
+      JsonObject out = jreply["cpm_image"].to<JsonObject>();
+      Cpm85Image::status(out);
+    }
+    else if (jdoc["cpm_keys"]) {
+      // Reply-only keyboard transport, serialized with existing disk UART
+      // transactions; never write unsolicited bytes onto Serial2.
+      Cpm85Drive::receiveAck(jdoc["cpm_keys"]["ack"].as<JsonVariantConst>());
+      JsonObject out=jreply["cpm_keys"].to<JsonObject>();
+      Cpm85Drive::offer(out);
+      out["active"]=Cpm85Keys::isAttached();
+      out["overflow"]=Cpm85Keys::overflowCount();
+      JsonArray codes=out["keys"].to<JsonArray>();
+      for(uint8_t i=0;i<Cpm85Keys::kBatchMax;++i) {
+        int key=Cpm85Keys::pop();
+        if(key<0)break;
+        codes.add((uint8_t)key);
+      }
+    }
     else if (jdoc["keyboard"])
     {
       // expect an array of 1 or more keycodes (8bit) and insert them

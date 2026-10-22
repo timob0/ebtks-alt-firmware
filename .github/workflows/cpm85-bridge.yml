@@ -1,0 +1,31 @@
+name: CPM85 Teensy firmware validation
+on:
+  push:
+    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control]
+  workflow_dispatch:
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate HP-85 management read handler ABI
+        run: python3 test/check_cpm85_drive_read_abi.py
+      - name: Native HP-85 keyboard FIFO regression
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Itest/stubs -Iinclude test/cpm85_ring_native.cpp -o /tmp/cpm85_ring_native
+          /tmp/cpm85_ring_native
+      - name: Native 8 MiB CP/M image-creation regression
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Itest/stubs -Iinclude test/cpm85_image_native.cpp -o /tmp/cpm85_image_native
+          /tmp/cpm85_image_native
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build Teensy 4.1 firmware
+        run: pio run -e teensy41
