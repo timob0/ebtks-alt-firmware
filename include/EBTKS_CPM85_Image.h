@@ -49,6 +49,7 @@ inline void fail(const char *reason) {
 }
 inline void begin(const char *name) {
   if (state == RUNNING) {strlcpy(error, "creation_in_progress", sizeof(error)); return;}
+  fileName[0] = 0; filePath[0] = 0; written = 0;
   char clean[kNameMax] = {};
   if (!validName(name, clean)) {state = ERROR; strlcpy(error, "invalid_filename", sizeof(error)); return;}
   char path[sizeof(filePath)] = {};
@@ -74,7 +75,7 @@ inline void service() {
     written += sizeof(blank);
   }
   if (written == kBytes) {
-    if (!file.flush()) {fail("sd_flush_failed"); return;}
+    if (!file.sync()) {fail("sd_flush_failed"); return;}
     file.close();
     // Size verification uses a new read-only descriptor.
     FsFile verify = SD.open(filePath, O_RDONLY);
