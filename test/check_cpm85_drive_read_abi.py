@@ -21,3 +21,7 @@ for name, action in (
 assert "setIOReadFunc(0345, &onReadCpm85DriveState)" in main
 assert "setIOReadFunc(0346, &onReadCpm85DriveReply)" in main
 print("PASS: CPM85 read callbacks drive readData and claim the bus")
+
+# CPDCAT keeps the 0344 HP opcode ISR allocation-free; only extend range.
+mailbox=(Path(__file__).resolve().parents[1] / 'include' / 'EBTKS_CPM85_Drive.h').read_text()
+assert 'if(code<1 || code>7)' in mailbox
