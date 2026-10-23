@@ -4,7 +4,7 @@
 
 // CPM85 disk-control mailbox. HP I/O bus ISR may only touch bounded RAM.
 // Protocol: 0343 W ASCII argument bytes, 0344 W opcode (1=status,
-// 2=mount, 3=unmount, 4=Z80 reset, 5=list .dsk, 6=create .dsk),\n// 0345 R state, 0346 R reply bytes.
+// 2=mount, 3=unmount, 4=Z80 reset, 5=list .dsk, 6=create .dsk,\n// 7=read-only CP/M CPDCAT catalog),\n// 0345 R state, 0346 R reply bytes.
 // State: 0=idle, 1=busy, 2=success/reply, 3=error/reply. Read bytes
 // through the first NUL to release the mailbox for another command.
 // This mailbox is independent of 0341/0342 keyboard focus control.
@@ -39,7 +39,7 @@ inline void onOpcode(uint8_t code) {
     return;
   }
   if(state!=0)return;
-  if(code<1 || code>6){argumentLength=0;return;}
+  if(code<1 || code>7){argumentLength=0;return;}
   arguments[argumentLength]=0;
   operation=code;
   sequence=++nextSequence;
