@@ -1,7 +1,7 @@
 name: CPM85 Teensy firmware validation
 on:
   push:
-    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control]
+    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control, feature/cpm85-catalog]
   workflow_dispatch:
 jobs:
   native:
