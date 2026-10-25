@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include "EBTKS_CPM85_Rmidle_Probe.h"
 
 // CPM85 experimental HP-85 -> Teensy keyboard bridge, no AUXROM ROM banking.
 // EBTKS I/O ports are 0341 (0177741) for raw key events and 0342 (0177742)
@@ -61,5 +62,10 @@ inline uint8_t pending() {
 }
 } // namespace Cpm85Keys
 
-inline void onWriteCpm85Key(uint8_t value){ Cpm85Keys::onKey(value); }
-inline void onWriteCpm85Control(uint8_t value){ Cpm85Keys::onControl(value); }
+inline void onWriteCpm85Key(uint8_t value){
+  if (!Cpm85RmidleProbe::onKey(value)) Cpm85Keys::onKey(value);
+}
+inline void onWriteCpm85Control(uint8_t value){
+  Cpm85RmidleProbe::onControl(value);
+  Cpm85Keys::onControl(value);
+}
