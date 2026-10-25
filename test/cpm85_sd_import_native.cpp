@@ -65,6 +65,36 @@ int main() {
   assert(!begin("A:BAD.DAT",why));
   assert(std::strcmp(why,"source_must_be_1_to_63_records")==0);
 
+  // Exercise the exact 42-record transfer length accepted on physical
+  // hardware in B2b (A:STAT.COM was 5376 bytes). Use independent test
+  // contents so the SD preflight and record CRCs cannot accidentally reuse
+  // the earlier two-record sample's checksum.
+  {
+    uint8_t testBlock[128]{};
+    uint16_t expected=0xFFFF;
+    FsFile f=SD.open("/cpm/transfers/A_FORTY.COM",O_RDWR|O_CREAT|O_EXCL);
+    assert((bool)f);
+    for(unsigned record=0;record<42;++record) {
+      for(unsigned i=0;i<128;++i)
+        testBlock[i]=(uint8_t)((record*7+i)^0xA5);
+      assert(f.write(testBlock,sizeof(testBlock))==sizeof(testBlock));
+      expected=Cpm85SdExport::crcAppend(expected,testBlock,sizeof(testBlock));
+    }
+    f.close();
+    assert(begin("A:FORTY.COM",why));
+    assert(records==42 && served==0 && sourceCrc==expected);
+    const uint32_t fortySession=token;
+    for(uint16_t record=0;record<42;++record) {
+      assert(readRecord(fortySession,record,block,got,why));
+      for(unsigned i=0;i<128;++i)
+        assert(block[i]==uint8_t((record*7+i)^0xA5));
+      assert(got==Cpm85SdExport::crcAppend(0xFFFF,block,128));
+    }
+    assert(served==42 && finish(fortySession,why));
+    assert(state==DONE);
+    assert(SD.exists("/cpm/transfers/A_FORTY.COM"));
+  }
+
   // Source too large for this guarded first import (63 logical records).
   {
     uint8_t large[128]{};
