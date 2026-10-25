@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <SdFat.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 // Stage B2b: isolated, bounded CP/M -> Teensy SD staging.
@@ -68,7 +69,7 @@ inline void failed(const char *reason) {
     if(!SD.remove(temporary))reason="partial_cleanup_failed";
     ownsTemporary=false;
   }
-  strlcpy(lastError,reason,sizeof(lastError));
+  snprintf(lastError,sizeof(lastError),"%s",reason);
   state=ERROR;
 }
 inline bool begin(const char *name,const char *&reason) {
@@ -88,9 +89,9 @@ inline bool begin(const char *name,const char *&reason) {
   stagingFile=SD.open(part,O_RDWR|O_CREAT|O_EXCL);
   if(!stagingFile) {reason="exclusive_create_failed";return false;}
   ownsTemporary=true;
-  strlcpy(source,normal,sizeof(source));
-  strlcpy(destination,dest,sizeof(destination));
-  strlcpy(temporary,part,sizeof(temporary));
+  snprintf(source,sizeof(source),"%s",normal);
+  snprintf(destination,sizeof(destination),"%s",dest);
+  snprintf(temporary,sizeof(temporary),"%s",part);
   records=0;crc=0xFFFF;lastError[0]=0;
   if(++session==0)++session;
   state=ACTIVE;
