@@ -4,6 +4,8 @@
 #include <cstring>
 static uint32_t fakeMillis=1;
 uint32_t millis() { return fakeMillis; }
+// EBTKS's I/O read wrappers publish the byte through this shared bus latch.
+static uint8_t readData=0;
 #include "EBTKS_CPM85_Drive.h"
 
 static unsigned resets=0;
