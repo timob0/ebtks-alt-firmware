@@ -53,8 +53,9 @@ struct MockSd {
   bool rename(const char *from,const char *to) {
     auto it=entries.find(from);
     if(it==entries.end() || exists(to))return false;
-    entries.emplace(to,it->second);
-    entries.erase(it);
+    const auto content=it->second;
+    entries.emplace(to,content);
+    entries.erase(from);
     return true;
   }
 };
