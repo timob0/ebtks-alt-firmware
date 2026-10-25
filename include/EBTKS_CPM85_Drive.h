@@ -1,10 +1,13 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <string.h>
 
 // CPM85 disk-control mailbox. HP I/O bus ISR may only touch bounded RAM.
-// Protocol: 0343 W ASCII argument bytes, 0344 W opcode (1=status,
-// 2=mount, 3=unmount, 4=Z80 reset, 5=list .dsk, 6=create .dsk,\n// 7=read-only CP/M CPDCAT catalog),\n// 0345 R state, 0346 R reply bytes.
+// Protocol: 0343 W ASCII arguments; 0344 W opcode
+// 1=status, 2=mount, 3=unmount, 4=Z80-only reset, 5=images,
+// 6=create image, 7=CPDCAT, 8=local ESP32 hardware reboot.
+// 0345 R state, 0346 R reply bytes.
 // State: 0=idle, 1=busy, 2=success/reply, 3=error/reply. Read bytes
 // through the first NUL to release the mailbox for another command.
 // This mailbox is independent of 0341/0342 keyboard focus control.
@@ -21,6 +24,15 @@ static char arguments[kArgsMax]={};
 static char response[kReplyMax]={};
 static uint16_t nextSequence=0;
 static uint32_t lastOfferMs=0;
+// CPREBOOT is a *Teensy-local* opcode: no ESP32 UART/Wi-Fi dependency.
+// The ISR merely arms these flags. Only service() in the ordinary main
+// loop may pulse the EN pin, and only after HP BASIC consumed its reply.
+static volatile bool espRebootPending=false;
+static bool espRebootTimerActive=false;
+static uint32_t espRebootStartMs=0;
+static constexpr uint32_t kEspRebootGraceMs=1500;
+static constexpr char kEspRebootReply[]=
+    "ESP32 REBOOT QUEUED - CP/M AND WIFI WILL RESTART";
 
 // These four functions are HP bus ISR callbacks: no UART, SD, JSON,
 // logging, heap allocation or waits are allowed in them.
@@ -39,7 +51,7 @@ inline void onOpcode(uint8_t code) {
     return;
   }
   if(state!=0)return;
-  if(code<1 || code>7){argumentLength=0;return;}
+  if(code<1 || code>8){argumentLength=0;return;}
   arguments[argumentLength]=0;
   operation=code;
   sequence=++nextSequence;
@@ -50,6 +62,9 @@ inline uint8_t onState() { return state; }
 inline uint8_t onReply() {
   if(state!=2 && state!=3)return 0;
   if(readIndex<replyLength)return (uint8_t)response[readIndex++];
+  // Acknowledge a local ESP32 reboot *only after* BASIC read the final
+  // NUL. The HP bus ISR never touches GPIO, UART or the network stack.
+  if(operation==8 && state==2)espRebootPending=true;
   // Consume NUL and release. Reset argument length for the next request.
   state=0;
   operation=0;
@@ -60,7 +75,7 @@ inline uint8_t onReply() {
 
 // Called from Teensy's *ordinary loop* in its existing ESP UART poll.
 inline void receiveAck(JsonVariantConst ack) {
-  if(state!=1 || ack.isNull())return;
+  if(state!=1 || operation==8 || ack.isNull())return;
   const int id=ack["seq"] | -1;
   if(id<0 || id!=(int)sequence)return;
   const bool ok=ack["ok"] | false;
@@ -76,7 +91,7 @@ inline void receiveAck(JsonVariantConst ack) {
   interrupts();
 }
 inline void offer(JsonObject out) {
-  if(state!=1)return;
+  if(state!=1 || operation==8)return;
   const uint32_t now=millis();
   // Retry request if the Teensy->ESP response or subsequent ACK was lost.
   // ESP deduplicates by sequence so RESET is never executed twice.
@@ -86,6 +101,37 @@ inline void offer(JsonObject out) {
   cmd["seq"]=(uint16_t)sequence;
   cmd["op"]=(uint8_t)operation;
   cmd["args"]=arguments;
+}
+// Called once per pass from the ordinary Teensy main loop, never from the
+// HP bus ISR. The existing ESP_Reset() function drives EN low, BOOT high,
+// then releases EN (normal firmware boot). No HP power cycle is required.
+//
+// If HP BASIC aborts/times out before consuming the complete reply, the
+// reboot does not happen. A 1.5 s grace period permits the HP command
+// renderer to finish its native CRT newline and return to BASIC.
+inline void service(void (*resetEsp)()) {
+  if(state==1 && operation==8) {
+    const char *reply=espRebootPending?
+      "ESP32 REBOOT ALREADY PENDING":kEspRebootReply;
+    const size_t len=strlen(reply);
+    memcpy(response,reply,len+1);
+    noInterrupts();
+    replyLength=(uint16_t)len;
+    readIndex=0;
+    state=espRebootPending?3:2;
+    interrupts();
+  }
+  if(!espRebootPending)return;
+  const uint32_t now=millis();
+  if(!espRebootTimerActive) {
+    espRebootStartMs=now;
+    espRebootTimerActive=true;
+    return;
+  }
+  if(uint32_t(now-espRebootStartMs)<kEspRebootGraceMs)return;
+  espRebootPending=false;
+  espRebootTimerActive=false;
+  if(resetEsp)resetEsp();
 }
 } // namespace Cpm85Drive
 
