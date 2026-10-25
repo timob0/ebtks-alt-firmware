@@ -401,6 +401,8 @@ public:
         else
           ok=Cpm85SdExport::finish(token,(uint16_t)count,
                                   (uint16_t)claimed,reason);
+      } else if (strcmp(op,"status")==0) {
+        ok=true;reason="ok";
       } else if (strcmp(op,"abort")==0) {
         ok=Cpm85SdExport::abort(token,reason);
       }
