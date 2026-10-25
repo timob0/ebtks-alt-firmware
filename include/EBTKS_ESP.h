@@ -19,6 +19,7 @@
 #include "EBTKS_CPM85_Keyboard.h" // ISR FIFO for HP-85 physical key events
 #include "EBTKS_CPM85_Drive.h" // separate bounded management mailbox
 #include "EBTKS_CPM85_Image.h" // incremental Teensy-local 8 MiB disk creation
+#include "EBTKS_CPM85_SD_Export.h" // bounded, exclusive CP/M -> SD staged export
 
 Base64Class ourBase64;
 DirLine dl;
@@ -364,6 +365,49 @@ public:
       JsonObject reply = jreply["write"].to<JsonObject>();
       reply["fd"] = fd;
       reply["len"] = writeLen;
+    }
+
+    // B2b staged CP/M -> SD export. Restrict all paths inside the helper.
+    // Separate FsFile from generic open/read/write and mounted .DSK handles.
+    else if (jdoc["cpm_export"])
+    {
+      JsonVariantConst req=jdoc["cpm_export"].as<JsonVariantConst>();
+      const char *op=req["op"] | "";
+      const uint32_t token=req["session"] | (uint32_t)0;
+      const char *reason="unknown_operation";
+      bool ok=false;
+      if (strcmp(op,"begin")==0) {
+        const char *name=req["name"] | "";
+        ok=Cpm85SdExport::begin(name,reason);
+      } else if (strcmp(op,"write")==0) {
+        const char *encoded=req["data"] | "";
+        const size_t encodedLen=strnlen(encoded,180);
+        const int rec=req["record"] | -1;
+        const int claimed=req["crc16_ccitt_false"] | -1;
+        if(encodedLen!=172 || rec<0 || rec>=64 ||
+           claimed<0 || claimed>65535) {
+          reason="invalid_record_envelope";
+        } else {
+          const int decoded=ourBase64.decode((char *)_buff,(char *)encoded,
+                                             (int)encodedLen);
+          ok=Cpm85SdExport::append(token,(uint16_t)rec,_buff,
+                    decoded>0?(size_t)decoded:0,(uint16_t)claimed,reason);
+        }
+      } else if (strcmp(op,"finish")==0) {
+        const int count=req["records"] | -1;
+        const int claimed=req["crc16_ccitt_false"] | -1;
+        if(count<0 || count>64 || claimed<0 || claimed>65535)
+          reason="invalid_finish_envelope";
+        else
+          ok=Cpm85SdExport::finish(token,(uint16_t)count,
+                                  (uint16_t)claimed,reason);
+      } else if (strcmp(op,"abort")==0) {
+        ok=Cpm85SdExport::abort(token,reason);
+      }
+      JsonObject reply=jreply["cpm_export"].to<JsonObject>();
+      reply["ok"]=ok;
+      reply["reason"]=reason;
+      Cpm85SdExport::status(reply);
     }
 
     // Single 528-byte reverse-SPI RAM test. Absolutely no SD access.
