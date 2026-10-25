@@ -27,6 +27,11 @@ struct FsFile {
     position+=actual;
     return (int)actual;
   }
+  bool seek(uint32_t offset) {
+    if(!opened || !image || offset>image->bytes.size())return false;
+    position=offset;
+    return true;
+  }
   bool sync() {return opened;}
   void close(){opened=false;}
   uint32_t size() const {return image ? uint32_t(image->bytes.size()) : 0;}
