@@ -15,6 +15,7 @@ static volatile uint8_t page = 1;
 static volatile uint8_t mode = 0;
 static volatile uint8_t generation = 0;
 static volatile uint32_t rmidleCount = 0;
+static volatile uint8_t abortWithoutRestore = 0;
 
 // All these fields are task-loop-only.
 static uint8_t seenGeneration = 0;
@@ -30,8 +31,13 @@ void onControl(uint8_t value) {
     page = 1;
     mode = 0;
     rmidleCount = 0;
+    abortWithoutRestore = 0;
     active = 1;
     ++generation;
+  } else if (value == 4) {
+    // Physical HP RESET: never replay an old CRT snapshot over boot UI.
+    abortWithoutRestore = 1;
+    active = 0;
   } else if (value == 0 || value == 1) {
     active = 0;
   }
@@ -64,7 +70,7 @@ void service() {
       wasDrawing = false;
       // CRT_capture_screen/CRT_restore_screen use a single global
       // scratch buffer. Restore once after normal K8/CPOFF exit.
-      CRT_restore_screen();
+      if (!abortWithoutRestore) CRT_restore_screen();
     }
     return;
   }
