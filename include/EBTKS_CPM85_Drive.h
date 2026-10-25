@@ -116,9 +116,13 @@ inline void service(void (*resetEsp)()) {
     const size_t len=strlen(reply);
     memcpy(response,reply,len+1);
     noInterrupts();
-    replyLength=(uint16_t)len;
-    readIndex=0;
-    state=espRebootPending?3:2;
+    // HP STOP/timeout can cancel opcode 8 while the reply is prepared.
+    // Recheck under the ISR lock; never revive a canceled command.
+    if(state==1 && operation==8) {
+      replyLength=(uint16_t)len;
+      readIndex=0;
+      state=espRebootPending?3:2;
+    }
     interrupts();
   }
   if(!espRebootPending)return;
