@@ -81,7 +81,7 @@ void service() {
     lastRmidleChangeMs = now;
     lastPage = 0;
     lastMode = 255;
-    drawRow(1, "C85MENU - RMIDLE TEST         ");
+    drawRow(1, "CMENU   - RMIDLE TEST         ");
     drawRow(4, "K1-3 PAGES K4 MODE K8 EXIT    ");
     drawRow(6, "PRINTER/LST: DISABLED         ");
   }
