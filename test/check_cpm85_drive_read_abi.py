@@ -22,6 +22,13 @@ assert "setIOReadFunc(0345, &onReadCpm85DriveState)" in main
 assert "setIOReadFunc(0346, &onReadCpm85DriveReply)" in main
 print("PASS: CPM85 read callbacks drive readData and claim the bus")
 
-# CPDCAT keeps the 0344 HP opcode ISR allocation-free; only extend range.
+# CPREBOOT expands the mailbox opcode range without touching reset GPIO
+# in an ISR; execution is deferred to the Teensy's ordinary main loop.
 mailbox=(Path(__file__).resolve().parents[1] / 'include' / 'EBTKS_CPM85_Drive.h').read_text()
-assert 'if(code<1 || code>7)' in mailbox
+assert 'if(code<1 || code>8)' in mailbox
+assert 'Cpm85Drive::service(&ESP_Reset);' in main
+assert 'if(operation==8 && state==2)espRebootPending=true;' in mailbox
+assert 'if(state!=1 || operation==8)return;' in mailbox
+assert 'if(state!=1 || operation==8 || ack.isNull())return;' in mailbox
+assert 'kEspRebootGraceMs=1500' in mailbox
+print("PASS: CPREBOOT opcode local to Teensy, ACK-before-reset and no ISR GPIO")
