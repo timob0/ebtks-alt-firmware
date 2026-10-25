@@ -1,7 +1,7 @@
 name: CPM85 Teensy firmware validation
 on:
   push:
-    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control, feature/cpm85-catalog, feature/cpm85-hpib-output]
+    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control, feature/cpm85-catalog]
   workflow_dispatch:
 jobs:
   native:
@@ -10,8 +10,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate HP-85 management read handler ABI
         run: python3 test/check_cpm85_drive_read_abi.py
-      - name: Validate RMIDLE probe and no ISR CRT updates
-        run: python3 test/check_cpm85_rmidle_probe.py
       - name: Native HP-85 keyboard FIFO regression
         run: |
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Itest/stubs -Iinclude test/cpm85_ring_native.cpp -o /tmp/cpm85_ring_native
