@@ -158,6 +158,7 @@
 #include <TimeLib.h>
 
 #include "Inc_Common_Headers.h"
+#include "EBTKS_CPM85_Rmidle_Probe.h"
 #include "HpibDisk.h"
 
 //  Setting VERBOSE_KEYWORDS to 1 turns on all verbose reporting.
@@ -3709,6 +3710,7 @@ int16_t select_next_RMIDLE_character_source(void)
 //
 void AUXROM_RMIDLE(void)
 {
+  Cpm85RmidleProbe::onRmidle(); // count real HP EXEC callbacks; never redraw here
   int     newchar;        //  Needs to be int so that we can send -1 , or 0..255
 
   newchar = select_next_RMIDLE_character_source();
