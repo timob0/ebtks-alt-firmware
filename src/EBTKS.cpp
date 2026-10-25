@@ -563,6 +563,10 @@ void loop() {
   if (Serial2.available()) esp32.poll();
   // One bounded 4-KiB SD write per loop during CPDMK. No UART image payload.
   Cpm85Image::service();
+  // HP BASIC CPREBOOT: once the HP mailbox acknowledgement is consumed,
+  // pulse the existing ESP32 EN reset line from THIS non-ISR loop only.
+  // Works even when Wi-Fi and the ESP32 UART service are unavailable.
+  Cpm85Drive::service(&ESP_Reset);
 
   // TB added USB Printer
   if (seikoPrinter.connected() && !usbPrinter_OK) {
