@@ -20,6 +20,7 @@
 #include "EBTKS_CPM85_Drive.h" // separate bounded management mailbox
 #include "EBTKS_CPM85_Image.h" // incremental Teensy-local 8 MiB disk creation
 #include "EBTKS_CPM85_SD_Export.h" // bounded, exclusive CP/M -> SD staged export
+#include "EBTKS_CPM85_SD_Import.h" // read-only source for B2c SD -> CP/M
 
 Base64Class ourBase64;
 DirLine dl;
@@ -410,6 +411,48 @@ public:
       reply["ok"]=ok;
       reply["reason"]=reason;
       Cpm85SdExport::status(reply);
+    }
+
+    // Stage B2c: read-only access to files exported under /cpm/transfers.
+    // Never accepts arbitrary SD paths. All CP/M writes occur on ESP32
+    // via BDOS at the verified safe point, NOT here.
+    else if (jdoc["cpm_import"])
+    {
+      JsonVariantConst req=jdoc["cpm_import"].as<JsonVariantConst>();
+      const char *op=req["op"] | "";
+      const uint32_t session=req["session"] | (uint32_t)0;
+      const char *reason="unknown_operation";
+      bool ok=false;
+      uint8_t recordBytes[128]{};
+      uint16_t recordCrc=0;
+      int recordIndex=-1;
+      if(strcmp(op,"begin")==0) {
+        ok=Cpm85SdImport::begin(req["source"] | "",reason);
+      } else if(strcmp(op,"read")==0) {
+        recordIndex=req["record"] | -1;
+        if(recordIndex<0 || recordIndex>=Cpm85SdImport::kMaxRecords)
+          reason="invalid_record";
+        else
+          ok=Cpm85SdImport::readRecord(session,(uint16_t)recordIndex,
+                                     recordBytes,recordCrc,reason);
+      } else if(strcmp(op,"finish")==0) {
+        ok=Cpm85SdImport::finish(session,reason);
+      } else if(strcmp(op,"abort")==0) {
+        ok=Cpm85SdImport::abort(session,reason);
+      } else if(strcmp(op,"status")==0) {
+        ok=true;reason="ok";
+      }
+      JsonObject reply=jreply["cpm_import"].to<JsonObject>();
+      reply["ok"]=ok;
+      reply["reason"]=reason;
+      Cpm85SdImport::status(reply);
+      if(ok && strcmp(op,"read")==0) {
+        ourBase64.encode(_strBuff,(char *)recordBytes,128);
+        reply["record"]=recordIndex;
+        reply["length"]=128;
+        reply["record_crc16"]=recordCrc;
+        reply["data"]=_strBuff;
+      }
     }
 
     // Single 528-byte reverse-SPI RAM test. Absolutely no SD access.
