@@ -35,6 +35,7 @@
 #define ALLOCATE 1
 
 #include "Inc_Common_Headers.h"
+#include "EBTKS_CPM85_Rmidle_Probe.h"
 #include "EBTKS_ESP.h"
 #include <TimeLib.h>
 // uncomment to quick access file with editor. Do not leave uncommented
@@ -538,6 +539,7 @@ void loop() {
   Serial_Command_Poll(); //  84 ns when idle, but 800 ns ish if Phi 1 interrupt occurs while running
   tape.poll();           //  72 ns when idle, but 800 ns ish if Phi 1 interrupt occurs while running
   AUXROM_Poll();         //  32 ns when idle, but 760 ns ish if Phi 1 interrupt occurs while running
+  Cpm85RmidleProbe::service(); // optional task-side CRT redraw, NEVER inside HP bus ISR
   Logic_Analyzer_Poll(); //  54 ns when idle, but 780 ns ish if Phi 1 interrupt occurs while running
 
   // Handle USB communication, slow this down a bit to every 10ms
