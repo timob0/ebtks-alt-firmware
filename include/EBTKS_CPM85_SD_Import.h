@@ -41,27 +41,26 @@ inline bool begin(const char *source,const char *&reason) {
   if(snprintf(path,sizeof(path),"/cpm/transfers/%s",leaf)>=(int)sizeof(path)) {
     reason="invalid_source_path";return false;
   }
-  FsFile candidate=SD.open(path,O_RDONLY);
-  if(!candidate) {reason="source_not_found";return false;}
-  const uint64_t length=candidate.size();
+  sourceFile=SD.open(path,O_RDONLY);
+  if(!sourceFile) {reason="source_not_found";return false;}
+  const uint64_t length=sourceFile.size();
   if(length==0 || length>uint64_t(kMaxRecords)*kRecordBytes ||
      (length%kRecordBytes)!=0) {
-    candidate.close();
+    sourceFile.close();
     reason="source_must_be_1_to_63_records";return false;
   }
   uint8_t block[kRecordBytes];
   uint16_t checked=0xFFFF;
   bool ok=true;
   for(uint16_t i=0;i<length/kRecordBytes;++i) {
-    if(candidate.read(block,sizeof(block))!=(int)sizeof(block)) {
+    if(sourceFile.read(block,sizeof(block))!=(int)sizeof(block)) {
       ok=false;break;
     }
     checked=Cpm85SdExport::crcAppend(checked,block,sizeof(block));
   }
-  if(!ok || !candidate.seek(0)) {
-    candidate.close();reason="source_read_or_seek_failed";return false;
+  if(!ok || !sourceFile.seek(0)) {
+    sourceFile.close();reason="source_read_or_seek_failed";return false;
   }
-  sourceFile=candidate;
   snprintf(sourceName,sizeof(sourceName),"%s",canonical);
   snprintf(sourcePath,sizeof(sourcePath),"%s",path);
   records=uint16_t(length/kRecordBytes);
