@@ -51,9 +51,21 @@ int main() {
   assert(SD.exists("/cpm/transfers/A_STAT.COM")); // source immutable
 
   assert(begin("A:STAT.COM",why));
+  assert(!recover("B:STAT.COM",why));
+  assert(std::strcmp(why,"active_source_mismatch")==0);
+  assert(state==ACTIVE);
+  assert(recover("A:STAT.COM",why));
+  assert(state==ERROR);
+  assert(!recover("A:STAT.COM",why));
+  assert(std::strcmp(why,"no_active_import")==0);
+  assert(SD.exists("/cpm/transfers/A_STAT.COM"));
+  assert(begin("A:STAT.COM",why));
+  assert(release(token,why));
+  assert(state==DONE);
+  assert(SD.exists("/cpm/transfers/A_STAT.COM"));
+  assert(begin("A:STAT.COM",why));
   assert(abort(token,why));
   assert(state==ERROR);
-  assert(SD.exists("/cpm/transfers/A_STAT.COM"));
 
   // Strict record alignment preflight; no CP/M file may be created from it.
   {
