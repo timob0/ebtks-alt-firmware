@@ -439,6 +439,10 @@ public:
         ok=Cpm85SdImport::finish(session,reason);
       } else if(strcmp(op,"abort")==0) {
         ok=Cpm85SdImport::abort(session,reason);
+      } else if(strcmp(op,"release")==0) {
+        ok=Cpm85SdImport::release(session,reason);
+      } else if(strcmp(op,"recover")==0) {
+        ok=Cpm85SdImport::recover(req["source"] | "",reason);
       } else if(strcmp(op,"status")==0) {
         ok=true;reason="ok";
       }
