@@ -95,6 +95,29 @@ inline bool finish(uint32_t session,const char *&reason) {
   reason="ok";
   return true;
 }
+// Preflight releases its read-only source without declaring an error.
+inline bool release(uint32_t session,const char *&reason) {
+  if(state!=ACTIVE || session!=token) {reason="wrong_session";return false;}
+  sourceFile.close();
+  state=DONE;
+  reason="ok";
+  return true;
+}
+// Explicit orphan-session recovery: caller must name the SAME published
+// source. Never modifies/removes the original SD file or a CP/M disk.
+inline bool recover(const char *source,const char *&reason) {
+  if(state!=ACTIVE) {reason="no_active_import";return false;}
+  char canonical[16]{},leaf[16]{};
+  if(!Cpm85SdExport::normalise(source,canonical,leaf) ||
+     strcmp(canonical,sourceName)!=0) {
+    reason="active_source_mismatch";return false;
+  }
+  sourceFile.close();
+  state=ERROR;
+  snprintf(lastError,sizeof(lastError),"%s","orphan_session_recovered");
+  reason="ok";
+  return true;
+}
 inline bool abort(uint32_t session,const char *&reason) {
   if(state!=ACTIVE || session!=token) {reason="wrong_session";return false;}
   fail("aborted");
