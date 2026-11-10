@@ -1,3 +1,36 @@
+## 2026-11-10 — B2d source-argument correction (user-requested)
+
+The **first CPIMPORT argument is a literal SD filename or optional
+relative subpath under `/cpm/transfers/`**, and must NOT be rewritten
+using a CP/M source-drive prefix. For example:
+
+```basic
+CPIMPORT "A_STAT.COM","B:STAT.COM"
+```
+
+reads `/cpm/transfers/A_STAT.COM` on Teensy SD and creates
+`B:STAT.COM` in CP/M (assuming it does not already exist).
+A hypothetical `CPIMPORT "PACK/HELLO.COM","B:HELLO.COM"`
+reads `/cpm/transfers/PACK/HELLO.COM`. There is no `A:` on the SD
+side. A literal relative slash-separated path is accepted but always
+sandboxed below `/cpm/transfers`; absolute paths, parent traversal,
+dot-prefixed components, colons, backslashes and control chars are
+rejected. No arbitrary SD path access.
+
+The pre-existing B2c **web API** still accepts its historical
+`A:STAT.COM` logical source and maps it to `A_STAT.COM`; this
+compatibility is intentional and independent of the new BASIC syntax.
+CP/M destination names remain strict A:–P: 8.3, CREATE-NEW.
+**Use B: for the first writable hardware trial and back up the B:
+disk image first**, not system disk A:.
+
+The import change touches ESP32 gate/controller, its pinned CPU SD
+transport, Teensy read-only source validator and native/static
+regression checks. Coordinated firmware validation must complete
+again before flashing these new commits.
+
+---
+
 # B2d — HP-85 blocking CP/M file transfers (implementation candidate)
 
 Updated 2026-11-10. Branch in all repositories:
@@ -10,7 +43,7 @@ engines remain unchanged.
 ## Implemented
 
 - CPM85 v0.05a adds BASIC `CPEXPORT "A:STAT.COM"` and
-  `CPIMPORT "A:STAT.COM","A:COPY.COM"`, using native string
+  `CPIMPORT "A_STAT.COM","B:STAT.COM"`, using native string
   parser ABI and the existing four-port Teensy mailbox.
 - Separate START (9 export/10 import), STATUS (11) and remotely
   confirmed pre-start CANCEL (12) opcodes. All opcode constants
@@ -91,9 +124,9 @@ and `LOADBIN "CPM85"` on HP-85. Do not replace SIMON85 or PRINTER85.
    `NOFILE.COM` does not exist, so the expected result is a
    non-destructive `file_not_found` error. If C/A keyboard input
    does not work, STOP testing and do not attempt a writable import.
-4. Only after the above: confirm `A:COPY.COM` is ABSENT, backup A.dsk,
+4. Only after the above: confirm `B:STAT.COM` is ABSENT, backup A.dsk,
    check published Teensy SD `A_STAT.COM` exists, then
-   `CPIMPORT "A:STAT.COM","A:COPY.COM"`. Expect 42 records,
+   `CPIMPORT "A_STAT.COM","B:STAT.COM"`. Expect 42 records,
    5376 bytes, CRC16 54346 and clean BDOS readback. Check CP/M
    DIR/STAT and SD file integrity. Never execute copied COM until
    independently verified.
