@@ -1,104 +1,109 @@
-# B2d — blocking HP-85 BASIC CP/M single-file transfer implementation plan
+# B2d — HP-85 blocking CP/M file transfers (implementation candidate)
 
-Status: design checkpoint; **no executable B2d firmware changes yet**.
-Branches in all three repos: `feature/cpm-file-transfer-b2d`.
-Parents: ESP32 and Teensy from the hardware-accepted B2c branch;
-HP85-Option-Roms from the accepted `feature/cpm85-esp-reboot` (CPM85 v0.04d).
+Updated 2026-11-10. Branch in all repositories:
+`feature/cpm-file-transfer-b2d`.
 
-## Existing plumbing verified in source
+**This is not yet hardware accepted. Do not merge into `main`.**
+The original B2c 8192-byte Z80 CPU-task stack and B2b/B2c native BDOS
+engines remain unchanged.
 
-* CPM85 LOADBIN exposes `CPARG` / `CPOPC` / `CPSTATE` /
-  `CPRPLY` at 0177743..0177746; parser supports `ONESTR` and
-  `TWOSTR`; `CPGO` displays a final NUL-terminated reply. The
-  implementation currently has *no* HP-side cooperative C/A input loop.
-* Teensy `Cpm85Drive` is an ISR-safe 92-byte request / 768-byte reply
-  mailbox; opcode 0 resets local state immediately. This **cannot**
-  substitute for canceling a remotely accepted transfer. Existing
-  `offer()` retries the same sequence number after 150 ms.
-* ESP32 `Cpm85DriveControl::receiveCommand()` currently runs
-  synchronously inside the poll path; `catalog()` can wait up to
-  12 seconds and sends a *single* final ACK. The cached ACK is keyed
-  by 16-bit sequence; the B2d state machine must not reuse this cache
-  as its only operation identity.
-* `CpmSafePoint::Gate::request()` rejects immediately when the guest
-  mode isn't `CCP_INPUT`, and accepts a `WAIT_EMPTY_LINE` only from
-  verified native CCP. `cancelPending()` uses CAS to cancel only
-  `WAIT_EMPTY_LINE`, never `RUNNING`. `complete()` records
-  success/error and sticky partial warnings.
-* B2b/B2c transfer engines run only on the existing pinned Z80 CPU task.
-  Keep them intact, including the **8192-byte task stack** and current
-  63/64-record limits.
+## Implemented
 
-## Required sequencing and safety contract
+- CPM85 v0.05a adds BASIC `CPEXPORT "A:STAT.COM"` and
+  `CPIMPORT "A:STAT.COM","A:COPY.COM"`, using native string
+  parser ABI and the existing four-port Teensy mailbox.
+- Separate START (9 export/10 import), STATUS (11) and remotely
+  confirmed pre-start CANCEL (12) opcodes. All opcode constants
+  in Capricorn source are **octal** (`=11`, `=12`, `=13`, `=14`).
+- Teensy fixes transaction ID when the START opcode arrives, BEFORE
+  any ACK, and retains it across local timeout (opcode 0), preventing
+  lost ACKs from stranding a potentially running operation.
+- ESP32 owns one serialized HP transaction. Its gate reservation
+  excludes competing HTTP services; CCP start uses an atomic
+  `WAIT_EMPTY_LINE` -> `RUNNING` compare-and-swap against
+  pre-start cancellation. Repeated status queries cannot reissue MAKE.
+- Transfer replies begin with a machine phase (`W` waiting CCP,
+  `P` armed, `R` running, `S` succeeded, `F` failed,
+  `X` cancelled, `E` rejected); a local UART timeout is a
+  separate `U`, never proof of remote cancellation.
+- HP BASIC blocks and polls status; for repeated pre-start waits it
+  prompts `CP/M NOT IDLE - RETURN TO A>` and
+  `C=CONTINUE A=ABORT`. The C/A keyboard path reads HP native
+  `KEYHIT`; **verify on physical hardware before writable tests**.
+  Initial prompt delay uses an uncalibrated bounded software counter;
+  the previously discussed ~10 seconds is the target, not yet measured.
+- An unacknowledged pre-start request is automatically cancelled after
+  60 seconds without HP status contact. Active BDOS is never aborted
+  by this lease or by the C/A request. A stopped/interrupted BASIC
+  statement is not remote cancellation.
+- Teensy refuses `CPRESET` and `CPREBOOT` while an unresolved
+  HP transfer still owns the transaction. Existing K8 keyboard
+  detach/reattach and disk/terminal paths are unchanged.
+- Final report includes actual 128-byte records sent, byte count,
+  cumulative CRC16, source/BDOS failure reason, and possible
+  partial CP/M target warning. CREATE-NEW, 63/64-record limits and
+  independent BDOS readback remain in force. No ZIP/batch yet.
 
-1. `CPEXPORT "A:STAT.COM"` and
-   `CPIMPORT "A:STAT.COM","A:COPY.COM"` parse BASIC string
-   expressions. The first argument of import names the published Teensy
-   SD transfer source, the second a *new* native CP/M destination.
-   Preserve the existing strict 8.3, A:–P:, CREATE-NEW and
-   CRC/readback checks.
-2. Introduce **separate transfer transaction IDs** and status queries
-   over HP -> Teensy -> ESP32. The ISR only copies ASCII, opcode and
-   status bytes; ESP32 owns gate/BDOS, Teensy owns SD transport and
-   mailbox delivery. A repeat of the same ID may query existing
-   status but must never rearm the gate or replay CREATE-NEW.
-3. A request while CP/M is executing a program remains **not started**;
-   the controller should report `waiting_for_ccp` and attempt a new
-   `Gate::request()` only while the transaction is still authorized.
-   Once accepted at `WAIT_EMPTY_LINE`, do not enqueue it again on
-   Continue. Distinguish this from `RUNNING` BDOS.
-4. After approximately 10 s without an actual safe-point start,
-   HP BASIC shows `CP/M NOT IDLE - RETURN TO A> PROMPT` and offers
-   `C=CONTINUE A=ABORT` using **native HP CRT/keyboard**, not the
-   captured K8 console or a synthetic CP/M keyboard character.
-   Continue extends the wait **for the same transaction**.
-5. Abort is a synchronous handshake: ESP32 atomically transitions
-   `WAIT_EMPTY_LINE` to cancelled, or retires the not-yet-accepted
-   request. It must return **cancelled** only after the operation is
-   guaranteed never to start. If the gate has already reached
-   `RUNNING`, report **already_started** and block for completion
-   instead; never interrupt active BDOS writes.
-6. Do not use Teensy opcode 0 alone as abort, since it forgets the
-   mailbox but does not cancel a pending ESP32 gate. Lost acknowledgments
-   must not turn cancellation into a queued future write.
-7. Transfer outcome is terminal, including error/source reason,
-   number of 128-byte records, bytes and CRC16-CCITT-FALSE. If MAKE
-   may have modified a destination, display a prominent **possible
-   partial file** warning. Never auto-delete or overwrite.
-8. Once `RUNNING`, no C/A cancel. For stalled active BDOS, use
-   bounded operator-visible status/warnings without resetting the
-   Z80 or abandoning a still-live operation. Do not claim that
-   returning to BASIC is safe until completion is confirmed.
-9. Preserve `CPM`, K8 detach/re-entry, `CPRESET`, `CPREBOOT`,
-   and existing CPDCAT. Check new keyword spellings against the
-   HP BASIC shortest-unique-match mechanism.
+## Build gate on Mac (no flash before all succeed)
 
-## Implementation order
+ESP32:
+```sh
+git switch feature/cpm-file-transfer-b2d && git pull
+bash tests/run_z80_core_native.sh
+python3 tests/check_cpm85_bridge.py
+pio run -e esp32dev
+pio run -e esp32dev-tft
+python3 tests/check_esp32_dram_budget.py
+```
 
-1. Build a small ESP32 transfer-controller state machine with
-   generation/identity, explicit pending/running/terminal transitions,
-   and native race tests (busy CCP, accepted gate, cancel vs start,
-   duplicate requests, pre-existing target, terminal status).
-2. Wire that controller through the ESP32 `cpm_keys` poll protocol
-   without holding the UART poll worker in a multi-second blocking
-   loop; retain existing disk traffic and deduplication.
-3. Add Teensy mailbox request/status/cancel verbs and native tests,
-   keeping all ISR callbacks wait-free. Do not reuse opcode 0 for a
-   remote cancellation acknowledgment.
-4. Extend CPM85 parse/runtime table and BASIC UI with a cooperative
-   wait and C/A keyboard prompt. Assemble and inspect the LOADBIN
-   artifact before hardware use; preserve 0.04d recovery file.
-5. Run ESP32 native regressions and both PIO targets, Teensy native
-   suite and teensy41 build, HP ROM assembler/size/parser tests. Flash
-   only a *coordinated* matched triplet after green gates and backups.
-6. Initial hardware validation on a disposable destination using
-   existing `A:STAT.COM` and a **new** destination filename; first
-   exercise idle/wait/abort with **no writes**. Only then test
-   42-record copy and readback. No overwrite and no arbitrary length.
+Teensy:
+```sh
+git switch feature/cpm-file-transfer-b2d && git pull
+python3 test/check_cpm85_drive_read_abi.py
+pio run -e teensy41
+```
+Option ROM:
+```sh
+git switch feature/cpm-file-transfer-b2d && git pull
+python3 tests/check_cpm85_keywords.py
+mkdir -p build
+./py311/bin/capasm src/cpm85.asm -b build/CPM85.bin -l build/CPM85.lst -r 2 -c
+./py311/bin/caplif build/CPM85.bin -l build/CPM85.dat -f CPM85
+```
+When the Mac build gates are green, retain tested B2c binaries and
+backup mounted CP/M disk images plus the SD transfer folder.
+Deployment order: matched Teensy41 firmware, ESP32
+`esp32dev-tft` via the working **serial->Teensy->ESP Prog**
+recovery route (browser OTA is unreliable), then CPM85.dat to SD
+and `LOADBIN "CPM85"` on HP-85. Do not replace SIMON85 or PRINTER85.
 
-## Explicit deployment gate
+## Controlled first hardware tests (use this order)
 
-**Do not build/flash B2d yet.** This checkpoint only creates new
-feature branches and describes the protocol. The validated B2c
-firmware remains the physical recovery baseline. No merges into
-`main` without user approval.
+1. Verify `CPVER` reports **CPM85 0.05a**; check CPSTATUS, native
+   CP/M DIR, K8 back to HP BASIC, and `CPM` re-entry.
+2. First exercise the waiting/C/A path with CP/M deliberately BUSY,
+   not parked at `A>` (e.g. a nonwriting program). Issue
+   `CPEXPORT "A:NOFILE.COM"` from HP BASIC. Test **A** cancellation
+   before returning to CCP. Observe message `TRANSFER CANCELLED
+   BEFORE BDOS START`; check no surprise operation occurs when
+   CP/M later reaches `A>`.
+3. Repeat waiting with **C** and allow CP/M to return to A>.
+   `NOFILE.COM` does not exist, so the expected result is a
+   non-destructive `file_not_found` error. If C/A keyboard input
+   does not work, STOP testing and do not attempt a writable import.
+4. Only after the above: confirm `A:COPY.COM` is ABSENT, backup A.dsk,
+   check published Teensy SD `A_STAT.COM` exists, then
+   `CPIMPORT "A:STAT.COM","A:COPY.COM"`. Expect 42 records,
+   5376 bytes, CRC16 54346 and clean BDOS readback. Check CP/M
+   DIR/STAT and SD file integrity. Never execute copied COM until
+   independently verified.
+5. Test export of an existing small CP/M file whose destination
+   `/cpm/transfers/A_<NAME>` is ABSENT. Do not reuse
+   `A:STAT.COM` export if `A_STAT.COM` already exists.
+6. After successful transfer, check ESP /api/system/memory and
+   /api/system/health, especially Z80 8192-byte stack watermark,
+   free8, largest8, watchdog/reset and SPI failure counters.
+
+A failed import after MAKE may leave a partial new CP/M file; do
+not auto-delete or silently retry. No extra diagnostic-only flashes.
+No `main` merge or branch deletion without explicit user approval.
