@@ -28,7 +28,8 @@ mailbox=(Path(__file__).resolve().parents[1] / 'include' / 'EBTKS_CPM85_Drive.h'
 assert 'if(code<1 || code>12)' in mailbox
 assert 'Cpm85Drive::service(&ESP_Reset);' in main
 assert 'if(operation==8 && state==2)espRebootPending=true;' in mailbox
-assert 'if(state!=1 || operation==8)return;' in mailbox
+assert 'if(state!=1 || operation==8 ||' in mailbox
+assert '(transferLocked && operation==4))return;' in mailbox
 assert 'if(state!=1 || operation==8 || ack.isNull())return;' in mailbox
 assert 'kEspRebootGraceMs=1500' in mailbox
 print("PASS: CPREBOOT opcode local to Teensy, ACK-before-reset and no ISR GPIO")
