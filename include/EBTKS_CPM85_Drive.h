@@ -88,8 +88,22 @@ inline void receiveAck(JsonVariantConst ack) {
     if(id>=0 && id<=65535)transferId=(uint16_t)id;
   }
   const char *message=ack["text"] | (ok?"OK":"FAILED");
-  size_t len=strnlen(message,kReplyMax-1);
-  memcpy(response,message,len);
+  size_t len=0;
+  if(operation>=9 && operation<=12) {
+    // Distinct wire phase for the BASIC blocking loop. Do not require
+    // English-message parsing on the Capricorn. Bound phase + separator.
+    const char *phase=ack["phase"] | "E";
+    const char c=phase[0];
+    response[0]=(c=='W'||c=='P'||c=='R'||c=='S'||
+                 c=='F'||c=='X')?c:'E';
+    response[1]='|';
+    const size_t n=strnlen(message,kReplyMax-3);
+    memcpy(response+2,message,n);
+    len=n+2;
+  } else {
+    len=strnlen(message,kReplyMax-1);
+    memcpy(response,message,len);
+  }
   response[len]=0;
   // Publish length and read cursor BEFORE marking reply available.
   noInterrupts();
