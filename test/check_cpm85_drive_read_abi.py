@@ -58,3 +58,16 @@ print("PASS: B2d Teensy literal SD path sandbox and transport dispatch")
 # B2d: known-busy phase is an HP UI hint, not a transaction cancellation.
 assert "response[0]=(c=='B'||c=='W'" in mailbox
 print("PASS: Teensy relays early known-CP/M-busy phase")
+
+# B2d optional export leaf/path: source is still CP/M drive-qualified;
+# SD rename uses the same sandbox and no-overwrite staging.
+exp=(root/"include"/"EBTKS_CPM85_SD_Export.h").read_text()
+assert "safeLiteralDestination(const char *name)" in exp
+assert "if(!part && c=='.')return false;" in exp
+assert "const char *requested=leaf;" in exp
+assert "requested=sdDestination;" in exp
+assert "strrchr(requested,'/')" in exp
+assert "SD.exists(dest)" in exp and "SD.exists(part)" in exp
+assert 'const char *sdName=req["sd_name"] | "";' in esp
+assert "Cpm85SdExport::begin(name,reason,sdName)" in esp
+print("PASS: Teensy optional CPEXPORT literal name validation and exclusive staging")
