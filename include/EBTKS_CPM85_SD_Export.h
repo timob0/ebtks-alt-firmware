@@ -106,8 +106,16 @@ inline bool begin(const char *name,const char *&reason,
     requested=sdDestination;
   }
   char dest[112]={},part[112]={};
-  if(snprintf(dest,sizeof(dest),"/cpm/transfers/%s",requested)>=(int)sizeof(dest) ||
-     snprintf(part,sizeof(part),"/cpm/transfers/.%s.part",requested)>=(int)sizeof(part)) {
+  const char *slash=strrchr(requested,'/');
+  const int writtenDest=snprintf(dest,sizeof(dest),"/cpm/transfers/%s",requested);
+  // Keep the exclusive .part next to the final file, including inside a
+  // relative subdirectory; never create an unintended /.SUBDIR tree.
+  const int writtenPart=slash?
+    snprintf(part,sizeof(part),"/cpm/transfers/%.*s/.%s.part",
+             (int)(slash-requested),requested,slash+1):
+    snprintf(part,sizeof(part),"/cpm/transfers/.%s.part",requested);
+  if(writtenDest<0 || writtenPart<0 ||
+     writtenDest>=(int)sizeof(dest) || writtenPart>=(int)sizeof(part)) {
     reason="path_too_long";return false;
   }
   if(!SD.exists("/cpm/transfers") && !SD.mkdir("/cpm/transfers")) {
