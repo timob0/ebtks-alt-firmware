@@ -7,6 +7,7 @@
 // Protocol: 0343 W ASCII arguments; 0344 W opcode
 // 1=status, 2=mount, 3=unmount, 4=Z80-only reset, 5=images,
 // 6=create image, 7=CPDCAT, 8=local ESP32 hardware reboot.
+// B2d: 9=start export, 10=start import, 11=status, 12=pre-start cancel.
 // 0345 R state, 0346 R reply bytes.
 // State: 0=idle, 1=busy, 2=success/reply, 3=error/reply. Read bytes
 // through the first NUL to release the mailbox for another command.
@@ -23,6 +24,9 @@ static volatile uint8_t argumentLength=0;
 static char arguments[kArgsMax]={};
 static char response[kReplyMax]={};
 static uint16_t nextSequence=0;
+// B2d transaction ID is allocated by ESP32 from the accepted START seq.
+// Retained across STATUS/CANCEL mailbox requests; not reset by opcode 0.
+static volatile uint16_t transferId=0;
 static uint32_t lastOfferMs=0;
 // CPREBOOT is a *Teensy-local* opcode: no ESP32 UART/Wi-Fi dependency.
 // The ISR merely arms these flags. Only service() in the ordinary main
@@ -51,7 +55,7 @@ inline void onOpcode(uint8_t code) {
     return;
   }
   if(state!=0)return;
-  if(code<1 || code>8){argumentLength=0;return;}
+  if(code<1 || code>12){argumentLength=0;return;}
   arguments[argumentLength]=0;
   operation=code;
   sequence=++nextSequence;
@@ -79,6 +83,10 @@ inline void receiveAck(JsonVariantConst ack) {
   const int id=ack["seq"] | -1;
   if(id<0 || id!=(int)sequence)return;
   const bool ok=ack["ok"] | false;
+  if(ok && (operation==9 || operation==10)) {
+    const int id=ack["txn"] | -1;
+    if(id>=0 && id<=65535)transferId=(uint16_t)id;
+  }
   const char *message=ack["text"] | (ok?"OK":"FAILED");
   size_t len=strnlen(message,kReplyMax-1);
   memcpy(response,message,len);
@@ -101,6 +109,7 @@ inline void offer(JsonObject out) {
   cmd["seq"]=(uint16_t)sequence;
   cmd["op"]=(uint8_t)operation;
   cmd["args"]=arguments;
+  if(operation==11 || operation==12)cmd["txn"]=(uint16_t)transferId;
 }
 // Called once per pass from the ordinary Teensy main loop, never from the
 // HP bus ISR. The existing ESP_Reset() function drives EN low, BOOT high,
