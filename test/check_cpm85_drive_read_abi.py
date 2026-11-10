@@ -71,3 +71,9 @@ assert "SD.exists(dest)" in exp and "SD.exists(part)" in exp
 assert 'const char *sdName=req["sd_name"] | "";' in esp
 assert "Cpm85SdExport::begin(name,reason,sdName)" in esp
 print("PASS: Teensy optional CPEXPORT literal name validation and exclusive staging")
+
+# Orphan recovery must only unlock a retained START if the ESP32
+# explicitly confirms the original txn is not present.
+assert 'strcmp(ack["text"] | (const char *)"", "UNKNOWN TRANSFER TRANSACTION")==0' in mailbox
+assert "if((operation==11 || operation==12) && !ok && phase[0]=='E'" in mailbox
+print("PASS: only authenticated unknown-transaction status clears stale Teensy ownership")
