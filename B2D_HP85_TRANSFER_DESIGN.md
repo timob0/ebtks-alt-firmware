@@ -1,3 +1,31 @@
+## 2026-11-11 — B2d ROM-only v0.06b hardware regression correction
+
+Hardware v0.06a result: shorter CPM message and native HP BASIC error
+reporting work, but first import after boot gave ERROR 74 STALL and
+subsequent imports gave ERROR 67 FILE NAME. Static inspection identified
+premature cancellation on a single ESP32 advisory 'B' busy phase:
+the native CCP gate can transiently be BUSY during a normal prompt
+transition. Do not treat 'B' alone as proof of an active program.
+CPM85 v0.06b waits a bounded 8 poll grace on B/W/P before requesting
+an atomic pre-BDOS CANCEL; active BDOS remains non-cancellable.
+This is a **ROM-only correction**: ESP32 and Teensy firmware need no
+change for this specific issue. CAPASM + LIF packaging and static
+keyword regressions succeeded (ROM CI 42923547016).
+
+A later ERROR 67 could alternatively reflect the newly enforced
+literal SD source naming: `CPIMPORT "A_STAT.COM","F:FIXTST.COM"`
+is valid, but `CPIMPORT "A:STAT.COM","F:FIXTST.COM"` is invalid
+under the current ESP32 firmware. Do not claim this was the
+user's exact argument; request the full statement/CPXCODE/CPXSTAT
+if failures persist.
+
+After loading ROM v0.06b, test an absent F:FIXTST.COM at CP/M A>
+using `CPIMPORT "A_STAT.COM","F:FIXTST.COM"`. Expect silent
+success, `CPXCODE=0`. If failed, record ERRN, CPXCODE and CPXSTAT
+before testing the busy Multiplan case. No merge to main yet.
+
+---
+
 ## 2026-11-10 — User-approved HP BASIC semantics, CPM85 v0.06a
 
 Following successful physical v0.05b Abort-while-Multiplan test, user pointed
