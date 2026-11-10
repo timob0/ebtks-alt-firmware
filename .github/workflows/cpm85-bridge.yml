@@ -30,6 +30,10 @@ jobs:
         run: |
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Itest/stubs -Iinclude test/cpm85_esp_reboot_native.cpp -o /tmp/cpm85_esp_reboot_native
           /tmp/cpm85_esp_reboot_native
+      - name: Native B2d HP transfer mailbox identity and timeout safety
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Itest/stubs -Iinclude test/cpm85_transfer_native.cpp -o /tmp/cpm85_transfer_native
+          /tmp/cpm85_transfer_native
   firmware:
     runs-on: ubuntu-latest
     steps:
