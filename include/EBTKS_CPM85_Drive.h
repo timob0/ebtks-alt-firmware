@@ -119,7 +119,7 @@ inline void receiveAck(JsonVariantConst ack) {
     // ESP reboot is also terminal for this ID. Never unlock on a
     // generic phase-E, malformed ACK, timeout or transport error.
     if((operation==11 || operation==12) && !ok && phase[0]=='E' &&
-       strcmp(ack["text"] | "", "UNKNOWN TRANSFER TRANSACTION")==0)
+       strcmp(ack["text"] | (const char *)"", "UNKNOWN TRANSFER TRANSACTION")==0)
       transferLocked=false;
   }
   const char *message=ack["text"] | (ok?"OK":"FAILED");
