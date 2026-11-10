@@ -20,6 +20,14 @@ int main() {
   onOpcode(0); // lost ACK / local timeout must NOT cancel remote BDOS
   assert(state==0 && transferId==1 && transferLocked);
   onOpcode(10); // cannot start a new import and strand old export
+  assert(state==3 && transferId==1 && transferLocked);
+  char rejected[100]{};
+  for(unsigned i=0;i<sizeof(rejected)-1;++i) {
+    const int ch=onReply();
+    if(ch==0)break;
+    rejected[i]=(char)ch;
+  }
+  assert(std::strstr(rejected,"PREVIOUS TRANSFER UNRESOLVED"));
   assert(state==0 && transferId==1 && transferLocked);
   onOpcode(11); // status query of the SAME original transfer
   assert(state==1 && operation==11 && sequence==2);
