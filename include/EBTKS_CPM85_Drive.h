@@ -123,7 +123,7 @@ inline void receiveAck(JsonVariantConst ack) {
     // English-message parsing on the Capricorn. Bound phase + separator.
     const char *phase=ack["phase"] | (const char*)"E";
     const char c=phase[0];
-    response[0]=(c=='W'||c=='P'||c=='R'||c=='S'||
+    response[0]=(c=='B'||c=='W'||c=='P'||c=='R'||c=='S'||
                  c=='F'||c=='X')?c:'E';
     response[1]='|';
     const size_t n=strnlen(message,kReplyMax-3);
