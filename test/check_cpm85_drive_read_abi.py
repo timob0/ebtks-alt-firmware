@@ -54,3 +54,7 @@ assert "if(part==0 && ch=='.')return false;" in imp
 assert '"/cpm/transfers/%s"' in imp
 assert 'strcmp(op,"begin_literal")==0' in esp
 print("PASS: B2d Teensy literal SD path sandbox and transport dispatch")
+
+# B2d: known-busy phase is an HP UI hint, not a transaction cancellation.
+assert "response[0]=(c=='B'||c=='W'" in mailbox
+print("PASS: Teensy relays early known-CP/M-busy phase")
