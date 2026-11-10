@@ -27,6 +27,7 @@ static uint16_t nextSequence=0;
 // B2d transaction ID is allocated by ESP32 from the accepted START seq.
 // Retained across STATUS/CANCEL mailbox requests; not reset by opcode 0.
 static volatile uint16_t transferId=0;
+static volatile bool transferLocked=false; // retained across local opcode-zero resets
 static uint32_t lastOfferMs=0;
 // CPREBOOT is a *Teensy-local* opcode: no ESP32 UART/Wi-Fi dependency.
 // The ISR merely arms these flags. Only service() in the ordinary main
@@ -56,9 +57,21 @@ inline void onOpcode(uint8_t code) {
   }
   if(state!=0)return;
   if(code<1 || code>12){argumentLength=0;return;}
+  // Only one BASIC transfer may own a remote transaction at a time.
+  // A local timeout does not clear ownership: the ESP may have begun BDOS.
+  if((code==9 || code==10) && transferLocked) {
+    argumentLength=0;return;
+  }
   arguments[argumentLength]=0;
   operation=code;
   sequence=++nextSequence;
+  if(code==9 || code==10) {
+    // The ESP32 transaction ID is exactly this first start sequence.
+    // Remember it BEFORE any ACK: a lost start ACK must still permit
+    // subsequent STATUS/CANCEL with the same original transaction ID.
+    transferId=sequence;
+    transferLocked=true;
+  }
   state=1;
   lastOfferMs=0;
 }
@@ -83,9 +96,14 @@ inline void receiveAck(JsonVariantConst ack) {
   const int id=ack["seq"] | -1;
   if(id<0 || id!=(int)sequence)return;
   const bool ok=ack["ok"] | false;
-  if(ok && (operation==9 || operation==10)) {
-    const int id=ack["txn"] | -1;
-    if(id>=0 && id<=65535)transferId=(uint16_t)id;
+  if(operation>=9 && operation<=12) {
+    const char *phase=ack["phase"] | (const char*)"E";
+    // Failed initial START means the server did not accept a transfer.
+    // A lost reply cannot enter here, so keep ownership in that case.
+    if((operation==9 || operation==10) && !ok && phase[0]=='E')
+      transferLocked=false;
+    if(phase[0]=='S' || phase[0]=='F' || phase[0]=='X')
+      transferLocked=false;
   }
   const char *message=ack["text"] | (ok?"OK":"FAILED");
   size_t len=0;
