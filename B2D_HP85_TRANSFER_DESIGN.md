@@ -1,3 +1,68 @@
+## 2026-11-10 — User-approved HP BASIC semantics, CPM85 v0.06a
+
+Following successful physical v0.05b Abort-while-Multiplan test, user pointed
+out a logical usability flaw: while blocking `CPIMPORT` is executing, the
+same HP keyboard cannot independently bring the CP/M application back to
+its native A> prompt. Therefore the C=CONTINUE/A=ABORT interactive prompt
+is not useful. Also normal HP BASIC commands should not flood scripted
+output with success messages, and `CPM` should display a short intro.
+
+**Implemented in HP ROM v0.06a**, on existing B2d branch:
+- `CPM` displays exactly `CONNECTED TO CP/M - K8 TO EXIT` (30 chars).
+- `CPIMPORT` and `CPEXPORT` produce **no CRT output on success**.
+- When ESP32 signals phase `B` (known-running program), BASIC requests
+  remote opcode 12 CANCEL promptly; it raises a native HP BASIC error
+  **only after the server confirms pre-start cancellation**. Thus no
+  deferred write can execute after a busy failure. Phase `W` (unknown
+  prompt) and `P` (armed but not yet BDOS) use a limited 10-poll grace,
+  then the same atomic CANCEL. The `R` phase must continue waiting:
+  BDOS that already started cannot be aborted.
+- Terminal `F`/`E` failures raise BASIC error rather than printing
+  diagnostics. Uses proven `JSB =ERRORP; BYT 74D` for busy/transport
+  (HP-85's generic STALL error) and `BYT 67D` for file/operation
+  failures (system FILE NAME error). These are *provisional mappings*
+  pending physical validation; 74 and 67 are existing HP codes,
+  **not new custom CP/M-specific error messages**. Scripts can use
+  `ON ERROR` and `ERRN` to trap them.
+- New zero-argument BASIC numeric function `CPXCODE` exposes the
+  more precise last transfer outcome: `0` success, `1` busy/remote
+  pre-start cancel, `2` transfer/file failure, `3` transport
+  uncertainty / cancellation unconfirmed, `4` BDOS entered and transfer
+  still running (normally overwritten with terminal result).
+- Existing `CPXSTAT` and `CPABORT` remain explicit human diagnostic
+  and recovery commands; their CRT text is intentional. Never use HP
+  RESET to assume a remote operation was cancelled.
+- The B2d SD filename protocol remains literal, e.g.
+  `CPIMPORT "A_STAT.COM","F:STAT.COM"` with Teensy source at
+  `/cpm/transfers/A_STAT.COM`. Earlier user found
+  `CPIMPORT "NOFILE.COM",...` rejected for 8.3 whereas
+  `A:STAT.COM` worked, and confirmed they **had not flashed** the
+  ESP32 literal-source firmware. This explains the mismatch; when
+  deploying v0.06a use a matched ESP32+Teensy B2d plus ROM v0.06a.
+
+**Acceptance status:** ROM CAPASM + LIF packaging and keyword tests
+pass in GitHub CI, ESP32/Teensy latest B2d firmware and native workflows
+pass; **v0.06a quiet/error/busy behavior not yet tested on physical
+HP-85**. Do not merge to main until user validates it.
+
+Recommended staged physical tests:
+1. Back up writable CP/M drive images; flash matched ESP32+Teensy from
+   B2d branch, load new CPM85 v0.06a; `CPVER`.
+2. `CPM` should show one short line; K8 exits.
+3. With CP/M executing Multiplan and F:BUSY.COM confirmed absent,
+   `CPIMPORT "A_STAT.COM","F:BUSY.COM"` should report a native
+   BASIC error promptly (74 / STALL), and `CPXCODE` should return 1.
+   After exiting Multiplan to A>, confirm F:BUSY.COM absent.
+4. At A> with a new destination `F:NEWTEST.COM`, successful import
+   should return silently, `CPXCODE=0`; reusing its destination should
+   produce a BASIC file error (67), `CPXCODE=2`.
+5. Test missing `NOFILE.COM` now accepted by the source parser but
+   correctly fails as missing SD source (not syntax/8.3 error).
+6. Optional `ON ERROR GOTO ...` test to verify scripted suppression.
+   Validate the native HP errors before promising specific handling.
+
+---
+
 ## 2026-11-10 — Hardware validation and prompt-on-known-busy B2d correction
 
 User confirmed CPM85 v0.05b C/A key detection now works while Multiplan is
