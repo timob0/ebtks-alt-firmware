@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include "EBTKS_CPM85_SD_Export.h"
 
 // B2c source ONLY: read a previously published /cpm/transfers file.
@@ -15,7 +16,7 @@ static constexpr uint16_t kRecordBytes=128;
 enum State : uint8_t { IDLE, ACTIVE, DONE, ERROR };
 static State state=IDLE;
 static FsFile sourceFile;
-static char sourceName[16]={};
+static char sourceName[72]={};
 static char sourcePath[88]={};
 static char lastError[40]={};
 static uint32_t token=0;
@@ -28,14 +29,46 @@ inline void fail(const char *message) {
   snprintf(lastError,sizeof(lastError),"%s",message);
   state=ERROR;
 }
-inline bool begin(const char *source,const char *&reason) {
+// Relative path only, rooted at /cpm/transfers. Reject absolute paths,
+ // empty/hidden components, '..', backslashes, colons and controls.
+ inline bool safeLiteralSource(const char *source) {
+   if(!source)return false;
+   const size_t n=strnlen(source,sizeof(sourceName));
+   if(n<1 || n>=sizeof(sourceName) || source[0]=='/' ||
+      source[n-1]=='/')return false;
+   size_t part=0;
+   for(size_t i=0;i<n;++i) {
+     const unsigned char ch=(unsigned char)source[i];
+     if(ch=='/') {
+       if(!part)return false;
+       part=0;continue;
+     }
+     if(!(isalnum(ch) || ch=='.' || ch=='_' || ch=='-'))return false;
+     if(part==0 && ch=='.')return false;
+     ++part;
+   }
+   return part>0;
+ }
+ inline bool begin(const char *source,const char *&reason,
+                   bool literal=false) {
   if(state==ACTIVE) {reason="import_in_progress";return false;}
   if(Cpm85SdExport::state==Cpm85SdExport::ACTIVE) {
     reason="export_in_progress";return false;
   }
-  char canonical[16]{},leaf[16]{};
-  if(!Cpm85SdExport::normalise(source,canonical,leaf)) {
-    reason="invalid_source_name";return false;
+  char canonical[sizeof(sourceName)]{},leaf[sizeof(sourceName)]{};
+  if(literal) {
+    if(!safeLiteralSource(source)) {
+      reason="invalid_source_name";return false;
+    }
+    strlcpy(canonical,source,sizeof(canonical));
+    strlcpy(leaf,source,sizeof(leaf));
+  } else {
+    char oldCanonical[16]{},oldLeaf[16]{};
+    if(!Cpm85SdExport::normalise(source,oldCanonical,oldLeaf)) {
+      reason="invalid_source_name";return false;
+    }
+    strlcpy(canonical,oldCanonical,sizeof(canonical));
+    strlcpy(leaf,oldLeaf,sizeof(leaf));
   }
   char path[sizeof(sourcePath)]{};
   if(snprintf(path,sizeof(path),"/cpm/transfers/%s",leaf)>=(int)sizeof(path)) {
