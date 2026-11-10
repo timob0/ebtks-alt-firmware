@@ -25,10 +25,20 @@ print("PASS: CPM85 read callbacks drive readData and claim the bus")
 # CPREBOOT expands the mailbox opcode range without touching reset GPIO
 # in an ISR; execution is deferred to the Teensy's ordinary main loop.
 mailbox=(Path(__file__).resolve().parents[1] / 'include' / 'EBTKS_CPM85_Drive.h').read_text()
-assert 'if(code<1 || code>8)' in mailbox
+assert 'if(code<1 || code>12)' in mailbox
 assert 'Cpm85Drive::service(&ESP_Reset);' in main
 assert 'if(operation==8 && state==2)espRebootPending=true;' in mailbox
 assert 'if(state!=1 || operation==8)return;' in mailbox
 assert 'if(state!=1 || operation==8 || ack.isNull())return;' in mailbox
 assert 'kEspRebootGraceMs=1500' in mailbox
 print("PASS: CPREBOOT opcode local to Teensy, ACK-before-reset and no ISR GPIO")
+
+# B2d: STATUS/CANCEL carry the original start ID, unlike opcode 0
+# which must never be mistaken for a confirmed remote cancel.
+assert 'static volatile uint16_t transferId=0;' in mailbox
+assert 'cmd["txn"]=(uint16_t)transferId;' in mailbox
+assert 'operation>=9 && operation<=12' in mailbox
+assert "response[1]='|';" in mailbox
+assert "if(code==0)" in mailbox
+assert "if(operation==11 || operation==12)" in mailbox
+print("PASS: B2d HP transfer token, phase prefix, and local/remote abort distinction")
