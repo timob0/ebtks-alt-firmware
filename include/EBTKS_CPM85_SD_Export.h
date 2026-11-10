@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 // Stage B2b: isolated, bounded CP/M -> Teensy SD staging.
 // This never opens a mounted .DSK file or uses the generic _currFile handle.
@@ -16,8 +17,8 @@ enum State : uint8_t { IDLE, ACTIVE, DONE, ERROR };
 static State state=IDLE;
 static FsFile stagingFile;
 static char source[16]={};
-static char destination[88]={};
-static char temporary[88]={};
+static char destination[112]={};
+static char temporary[112]={};
 static char lastError[40]={};
 static bool ownsTemporary=false;
 static uint32_t session=0;
@@ -62,6 +63,26 @@ inline bool normalise(const char *name,char (&out)[16],char (&leaf)[16]) {
   out[n]=0;leaf[n]=0;
   return true;
 }
+// A B2d export destination is a literal filename below /cpm/transfers.
+// Never accept a CP/M drive, absolute path, dot components, traversal,
+// backslash, colon or control/space chars. Optional subdirs must exist.
+inline bool safeLiteralDestination(const char *name) {
+  if(!name)return false;
+  const size_t n=strnlen(name,72);
+  if(n<1 || n>=72 || name[0]=='/' || name[n-1]=='/')return false;
+  size_t part=0;
+  for(size_t i=0;i<n;++i) {
+    const unsigned char c=(unsigned char)name[i];
+    if(c=='/') {
+      if(!part)return false;
+      part=0;continue;
+    }
+    if(!(isalnum(c) || c=='_' || c=='-' || c=='.'))return false;
+    if(!part && c=='.')return false;
+    ++part;
+  }
+  return part>0;
+}
 inline void failed(const char *reason) {
   if(stagingFile)stagingFile.close();
   if(ownsTemporary) {
@@ -72,13 +93,21 @@ inline void failed(const char *reason) {
   snprintf(lastError,sizeof(lastError),"%s",reason);
   state=ERROR;
 }
-inline bool begin(const char *name,const char *&reason) {
+inline bool begin(const char *name,const char *&reason,
+                  const char *sdDestination=nullptr) {
   if(state==ACTIVE) {reason="transfer_in_progress";return false;}
   char normal[16]={},leaf[16]={};
   if(!normalise(name,normal,leaf)) {reason="invalid_source_name";return false;}
-  char dest[88]={},part[88]={};
-  if(snprintf(dest,sizeof(dest),"/cpm/transfers/%s",leaf)>=(int)sizeof(dest) ||
-     snprintf(part,sizeof(part),"/cpm/transfers/.%s.part",leaf)>=(int)sizeof(part)) {
+  const char *requested=leaf;
+  if(sdDestination && sdDestination[0]) {
+    if(!safeLiteralDestination(sdDestination)) {
+      reason="invalid_destination_name";return false;
+    }
+    requested=sdDestination;
+  }
+  char dest[112]={},part[112]={};
+  if(snprintf(dest,sizeof(dest),"/cpm/transfers/%s",requested)>=(int)sizeof(dest) ||
+     snprintf(part,sizeof(part),"/cpm/transfers/.%s.part",requested)>=(int)sizeof(part)) {
     reason="path_too_long";return false;
   }
   if(!SD.exists("/cpm/transfers") && !SD.mkdir("/cpm/transfers")) {
