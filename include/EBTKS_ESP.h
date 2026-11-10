@@ -426,8 +426,9 @@ public:
       uint8_t recordBytes[128]{};
       uint16_t recordCrc=0;
       int recordIndex=-1;
-      if(strcmp(op,"begin")==0) {
-        ok=Cpm85SdImport::begin(req["source"] | "",reason);
+      if(strcmp(op,"begin")==0 || strcmp(op,"begin_literal")==0) {
+        ok=Cpm85SdImport::begin(req["source"] | "",reason,
+                                strcmp(op,"begin_literal")==0);
       } else if(strcmp(op,"read")==0) {
         recordIndex=req["record"] | -1;
         if(recordIndex<0 || recordIndex>=Cpm85SdImport::kMaxRecords)
