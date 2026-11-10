@@ -379,7 +379,10 @@ public:
       bool ok=false;
       if (strcmp(op,"begin")==0) {
         const char *name=req["name"] | "";
-        ok=Cpm85SdExport::begin(name,reason);
+        // Optional B2d literal relative SD destination, default empty
+        // for legacy B2b web exports. The Teensy validates both names.
+        const char *sdName=req["sd_name"] | "";
+        ok=Cpm85SdExport::begin(name,reason,sdName);
       } else if (strcmp(op,"write")==0) {
         const char *encoded=req["data"] | "";
         const size_t encodedLen=strnlen(encoded,180);
