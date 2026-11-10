@@ -92,7 +92,7 @@ inline void receiveAck(JsonVariantConst ack) {
   if(operation>=9 && operation<=12) {
     // Distinct wire phase for the BASIC blocking loop. Do not require
     // English-message parsing on the Capricorn. Bound phase + separator.
-    const char *phase=ack["phase"] | "E";
+    const char *phase=ack["phase"] | (const char*)"E";
     const char c=phase[0];
     response[0]=(c=='W'||c=='P'||c=='R'||c=='S'||
                  c=='F'||c=='X')?c:'E';
