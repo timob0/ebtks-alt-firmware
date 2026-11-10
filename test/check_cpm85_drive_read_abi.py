@@ -46,3 +46,11 @@ assert "response[1]='|';" in mailbox
 assert "if(code==0)" in mailbox
 assert "if(operation==11 || operation==12)" in mailbox
 print("PASS: B2d HP transfer token, phase prefix, and local/remote abort distinction")
+
+imp=(root/"include"/"EBTKS_CPM85_SD_Import.h").read_text()
+esp=(root/"include"/"EBTKS_ESP.h").read_text()
+assert "safeLiteralSource(const char *source)" in imp
+assert "if(part==0 && ch=='.')return false;" in imp
+assert '"/cpm/transfers/%s"' in imp
+assert 'strcmp(op,"begin_literal")==0' in esp
+print("PASS: B2d Teensy literal SD path sandbox and transport dispatch")
