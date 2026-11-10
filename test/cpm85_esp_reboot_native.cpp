@@ -14,7 +14,7 @@ static void restartEsp() { ++resets; }
 static void prepare() {
   using namespace Cpm85Drive;
   state=0;operation=0;sequence=0;readIndex=0;
-  replyLength=0;argumentLength=0;nextSequence=0;transferId=0;
+  replyLength=0;argumentLength=0;nextSequence=0;transferId=0;transferLocked=false;
   espRebootPending=false;espRebootTimerActive=false;
   espRebootStartMs=0;lastOfferMs=0;resets=0;fakeMillis=1;
 }
