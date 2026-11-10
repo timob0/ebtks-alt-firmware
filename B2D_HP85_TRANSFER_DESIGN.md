@@ -1,3 +1,73 @@
+## 2026-11-11 — Physical v0.06b both-direction errors and optional CPEXPORT SD rename (v0.06c)
+
+User reported that **neither** literal `CPIMPORT "A_STAT.COM"` nor the
+historical `"A:STAT.COM"` worked (both failed with HP BASIC Error 67),
+and `CPEXPORT "A:PIP.COM"` also produced Error 67. This invalidates any
+claim that the regression was solely the literal source naming or the
+v0.06a transient CCP busy phase. The source inspection confirms
+`CpmFileReadService::parseName` is still used for **all** CP/M
+drive-qualified 8.3 operands; SD literal validation is a separate step.
+A file error can also mean SD destination already exists or other BDOS
+or staging failure; current HP BASIC code intentionally maps all F
+failures to 67. Further hardware diagnostics are needed to determine
+the actual status and cause.
+
+The first STALL followed by immediate FILE NAME errors is also
+consistent with a **separate unresolved transfer**: the Teensy protects
+an uncertain old BDOS transaction by rejecting the next START with a
+wire `E` reply and text `PREVIOUS TRANSFER UNRESOLVED`. v0.06b
+incorrectly mapped all wire E replies to Error 67 FILE NAME. **v0.06c**
+maps E to BASIC Error 74 (transport/ownership), CPXCODE 3, leaving
+actual terminal `F` file/service failures as Error 67, CPXCODE 2.
+Use `CPXSTAT` / `CPABORT` to inspect/recover after uncertain failure;
+do not defeat the ownership interlock.
+
+User also requested optional explicit SD destination for CPEXPORT:
+- `CPEXPORT "A:PIP.COM"` preserves default `/cpm/transfers/A_PIP.COM`.
+- `CPEXPORT "A:PIP.COM","PIPBACK.COM"` publishes the same CP/M
+  source to literal `/cpm/transfers/PIPBACK.COM`.
+- Relative subdirectories such as `UTILS/PIP.COM` allowed under
+  `/cpm/transfers` if directory exists; no arbitrary SD access.
+- CP/M name parser remains strict drive-qualified 8.3, separate
+  from literal SD filename path validator. Neither existing destination
+  nor existing `.part` file can be overwritten.
+
+Implementation v0.06c:
+- HP85 assembler custom `OPTEXP` parser checks optional comma with
+  `CMB R14,=54`, uses `STREX+` and optionally GETCMA/STREXP.
+  At runtime checks R12 against HP85 TOS 101132 after subtracting
+  the 4-byte source string stack frame; emits the original CP/M source
+  or `source|literalSdFilename`.
+- ESP32 starts the operation with distinct CP/M FCB and optional
+  SD name, stores optional leaf in the existing 72-byte heap transfer
+  struct, and publishes it through the existing shared gate literal
+  slot, avoiding any new static TFT DRAM usage.
+- Existing B2b export RPC now has optional `sd_name` JSON field
+  sent only when an explicit destination is provided.
+- Teensy `Cpm85SdExport::begin` validates relative SD name,
+  stages exclusive `.part` next to destination even in subdirs,
+  verifies total CRC via SD readback, and atomically publishes only
+  if destination absent; original one-arg B2b paths unchanged.
+
+**Validation:** ROM CAPASM, static keyword/parsing tests, and LIF package
+passed GitHub Actions run 42925567861. Teensy firmware and native tests
+passed run 42925439056; ESP32 native tests passed run 42925401565;
+the latest ESP32 firmware/DRAM job was still in progress when this
+note was drafted. Hardware has **not** yet verified either the actual
+cause of previous Error 67 or new two-argument syntax.
+
+Next test: matched ESP32 + Teensy + CPM85 v0.06c.
+First, with CP/M idle, execute `CPXSTAT` and if unresolved use
+`CPABORT` and requery. Do not proceed until no active transfer.
+Use fresh names which do NOT already exist:
+`CPIMPORT "A_STAT.COM","F:ISAFE.COM"`;
+`CPEXPORT "A:PIP.COM","PIPB2D.COM"` (verify absent on SD).
+On error report exact statement, BASIC error, `CPXCODE`,
+`CPXSTAT` (including server reason). Do not overwrite any .DSK or
+CP/M system file; keep B2c backups. Do not merge main yet.
+
+---
+
 ## 2026-11-11 — B2d ROM-only v0.06b hardware regression correction
 
 Hardware v0.06a result: shorter CPM message and native HP BASIC error
