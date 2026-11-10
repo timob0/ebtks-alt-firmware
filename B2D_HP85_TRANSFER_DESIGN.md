@@ -1,3 +1,39 @@
+## 2026-11-11 — Additional exact-ID recovery guard (after v0.06c implementation)
+
+Further protocol review showed that a Teensy transaction retained across a
+lost HP/ESP acknowledgement can outlive the ESP32's transaction table after
+an ESP reboot. Subsequent START requests are intentionally blocked by
+`transferLocked`; v0.06b would misreport that local block as FILE NAME
+(Error 67). v0.06c maps E to STALL (Error 74) and CPXCODE 3.
+The Teensy now also clears ownership on STATUS/CANCEL E **only if**
+ESP32 explicitly replies exactly `UNKNOWN TRANSFER TRANSACTION`
+for the original ID. Generic E replies and UART timeouts still never
+unlock an active operation. The invariant that BDOS must not be
+cancelled after entry is unchanged.
+
+Latest functional CI before documentation:
+- HP ROM v0.06c: run 42925567861 success; latest doc CI 42925786986 success.
+- ESP32 latest code and static regression: run 42925401565 success;
+  doc-only CI 42925793066 also succeeded, including both ESP32 targets
+  and native checks.
+- Teensy export rename code run 42925439056 success; latest orphan-ID
+  change run 42926065631 native passed; firmware was still running
+  at last inspection; confirm before coordinated hardware flash.
+
+The next physical test MUST first inspect a failure with `CPXSTAT`.
+`CPXCODE=2` means the ESP32 reported terminal F (real file/staging/
+BDOS failure); `CPXCODE=3` means E/U transport or ownership uncertainty.
+`CPEXPORT "A:PIP.COM"` can fail legitimately if default SD file
+`/cpm/transfers/A_PIP.COM` already exists; use a genuinely new explicit
+target like `"PIPB2D.COM"` to eliminate this confounder.
+
+The optional second CPEXPORT string is implemented but **not yet
+verified on physical HP-85**. It uses an optional-comma HP parser with
+stack arity checked against TOS. Validate one- and two-argument forms
+before declaring it accepted. No main merge.
+
+---
+
 ## 2026-11-11 — Physical v0.06b both-direction errors and optional CPEXPORT SD rename (v0.06c)
 
 User reported that **neither** literal `CPIMPORT "A_STAT.COM"` nor the
