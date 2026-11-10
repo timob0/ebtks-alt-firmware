@@ -34,5 +34,18 @@ int main() {
   // and cannot silently create another transfer transaction.
   onOpcode(8);
   assert(state==1 && operation==8 && transferId==1);
+  service(nullptr);
+  assert(state==3 && !espRebootPending);
+  while(onReply()){}
+  assert(state==0 && transferLocked);
+  onOpcode(4);
+  assert(state==1 && operation==4);
+  JsonObject dummy{};
+  offer(dummy);
+  assert(lastOfferMs==0); // CPRESET was NOT forwarded to the ESP32
+  service(nullptr);
+  assert(state==3);
+  while(onReply()){}
+  assert(state==0 && transferLocked);
   std::puts("PASS: B2d Teensy start identity survives lost ACK, local timeout, and competing start");
 }
