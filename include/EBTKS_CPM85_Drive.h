@@ -60,7 +60,18 @@ inline void onOpcode(uint8_t code) {
   // Only one BASIC transfer may own a remote transaction at a time.
   // A local timeout does not clear ownership: the ESP may have begun BDOS.
   if((code==9 || code==10) && transferLocked) {
-    argumentLength=0;return;
+    // Never silently discard a second START. A locally interrupted BASIC
+    // statement can leave a *real* remote transaction owned by this ID.
+    // Reply explicitly; the HP user can inspect/cancel it without a reset.
+    static constexpr char busy[]=
+      "E|PREVIOUS TRANSFER UNRESOLVED; USE CPXSTAT OR CPABORT";
+    memcpy(response,busy,sizeof(busy));
+    operation=code;
+    readIndex=0;
+    replyLength=sizeof(busy)-1;
+    argumentLength=0;
+    state=3;
+    return;
   }
   arguments[argumentLength]=0;
   operation=code;
