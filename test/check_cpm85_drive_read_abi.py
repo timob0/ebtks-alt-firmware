@@ -36,6 +36,9 @@ print("PASS: CPREBOOT opcode local to Teensy, ACK-before-reset and no ISR GPIO")
 # B2d: STATUS/CANCEL carry the original start ID, unlike opcode 0
 # which must never be mistaken for a confirmed remote cancel.
 assert 'static volatile uint16_t transferId=0;' in mailbox
+assert 'static volatile bool transferLocked=false;' in mailbox
+assert 'transferId=sequence;' in mailbox
+assert 'transferLocked=true;' in mailbox
 assert 'cmd["txn"]=(uint16_t)transferId;' in mailbox
 assert 'operation>=9 && operation<=12' in mailbox
 assert "response[1]='|';" in mailbox
