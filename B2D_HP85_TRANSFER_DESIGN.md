@@ -1,3 +1,45 @@
+## 2026-11-10 — Hardware validation and prompt-on-known-busy B2d correction
+
+User confirmed CPM85 v0.05b C/A key detection now works while Multiplan is
+running: Abort cancelled the pending import correctly and a later normal
+import at the native A> prompt succeeded. The remaining delay before the
+prompt (user estimate ~30 seconds) is inappropriate when the Z80 is already
+known to be executing a program.
+
+Fix: ESP32 `Cpm85DriveControl::transferReply()` now distinguishes the
+existing native `Gate::mode` BUSY or PROBE_RUNNING state from UNKNOWN
+before claiming that CP/M is not at CCP. It sends a new **advisory only**
+transfer phase `B` ("CP/M RUNNING PROGRAM - RETURN TO A>") when a
+running program is known. This is not authorization to run BDOS, and
+changes no native safe-point criteria.
+
+Teensy relays that phase as `B|...`. CPM85 **v0.05c** detects the phase
+and prints the familiar C=CONTINUE A=ABORT prompt immediately at the
+next poll. If Continue is selected it allows an additional bounded
+40-poll interval, maintaining the original transfer ID, before another
+prompt. UNKNOWN and WAIT_EMPTY_LINE still use bounded polling; active
+BDOS still cannot be aborted. A=Abort retains verified remote cancellation.
+
+Hardware user additionally reported `NOFILE.COM` as an import source
+being rejected for "incorrect 8.3 naming", while `A:STAT.COM` worked.
+This is consistent with the earlier logical drive/FCB source parsing on
+an ESP32 firmware older than the literal SD-name change. The current
+B2d source code explicitly accepts literal `NOFILE.COM` under
+`/cpm/transfers` (then fails **file not found**) and rejects
+`A:STAT.COM` as an SD source; the user may be running a mixed build.
+**Do not assume that cause is verified.** The next test must deploy
+a matched **ESP32 + Teensy + CPM85 v0.05c triplet** and confirm
+`CPIMPORT "NOFILE.COM","F:ABRTST.COM"` reaches the
+`source_not_found` check when CCP is idle. Keep files absent and
+back up any writable CP/M disk before testing writes.
+
+CI: CAPASM/CPMLIF/keyword regression is green for v0.05c; native ESP
+and Teensy regressions green. ESP32 firmware (both variants and
+static DRAM guard) and latest Teensy firmware build must be confirmed
+green before recommending flashing. No main merge approved.
+
+---
+
 ## 2026-11-10 — B2d source-argument correction (user-requested)
 
 The **first CPIMPORT argument is a literal SD filename or optional
