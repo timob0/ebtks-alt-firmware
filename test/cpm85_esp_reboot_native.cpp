@@ -14,7 +14,7 @@ static void restartEsp() { ++resets; }
 static void prepare() {
   using namespace Cpm85Drive;
   state=0;operation=0;sequence=0;readIndex=0;
-  replyLength=0;argumentLength=0;nextSequence=0;
+  replyLength=0;argumentLength=0;nextSequence=0;transferId=0;
   espRebootPending=false;espRebootTimerActive=false;
   espRebootStartMs=0;lastOfferMs=0;resets=0;fakeMillis=1;
 }
@@ -30,7 +30,7 @@ int main() {
   assert(state==0 && resets==0);
 
   // No unknown opcodes accidentally enable the reset mechanism.
-  onOpcode(9);
+  onOpcode(13);
   assert(state==0 && !espRebootPending);
 
   // Local opcode eight is handled even if the ESP never polls the UART.
