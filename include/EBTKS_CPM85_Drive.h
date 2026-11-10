@@ -131,7 +131,9 @@ inline void receiveAck(JsonVariantConst ack) {
   interrupts();
 }
 inline void offer(JsonObject out) {
-  if(state!=1 || operation==8)return;
+  // CPRESET must never bypass a still-owned native BDOS transfer.
+  if(state!=1 || operation==8 ||
+     (transferLocked && operation==4))return;
   const uint32_t now=millis();
   // Retry request if the Teensy->ESP response or subsequent ACK was lost.
   // ESP deduplicates by sequence so RESET is never executed twice.
@@ -151,6 +153,19 @@ inline void offer(JsonObject out) {
 // reboot does not happen. A 1.5 s grace period permits the HP command
 // renderer to finish its native CRT newline and return to BASIC.
 inline void service(void (*resetEsp)()) {
+  if(state==1 && transferLocked && (operation==4 || operation==8)) {
+    const char *reply="CP/M TRANSFER UNRESOLVED - RESET REFUSED";
+    const size_t len=strlen(reply);
+    noInterrupts();
+    if(state==1 && transferLocked && (operation==4 || operation==8)) {
+      memcpy(response,reply,len+1);
+      replyLength=(uint16_t)len;
+      readIndex=0;
+      state=3;
+    }
+    interrupts();
+    return;
+  }
   if(state==1 && operation==8) {
     const char *reply=espRebootPending?
       "ESP32 REBOOT ALREADY PENDING":kEspRebootReply;
