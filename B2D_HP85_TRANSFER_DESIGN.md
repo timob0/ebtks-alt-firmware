@@ -1,3 +1,33 @@
+## 2026-11-11 — FINAL B2d core hardware acceptance: no delayed write after busy rejection
+
+User explicitly verified on the physical HP-85 / native CP/M system
+that a `CPIMPORT` rejected while Multiplan was running with
+**Error 74 STALL, CPXCODE=1** did **not create a destination file**
+afterwards. This closes the last critical safety confirmation:
+pre-BDOS cancellation cannot leave a delayed import that runs upon
+returning to the CCP prompt.
+
+Consolidated user-confirmed core tests:
+- `CPEXPORT "A:PIP.COM","PIPB2D2.COM"` succeeds and the named SD file exists.
+- `CPIMPORT "PIPB2D2.COM","F:PIPNEW.COM"` succeeds and file exists on F:.
+- v0.06d drain-through-NUL mailbox correction eliminates repeated STALL
+  on working idle CP/M file operations.
+- Busy Multiplan rejects import with Error 74 and CPXCODE 1, **without
+  creating a destination file later**.
+- Existing destination rejects import with Error 67 and CPXCODE 2.
+- Earlier B2d executable export/import round trip executed successfully;
+  read-only B: rejection and no-overwrite F: behavior were also tested.
+
+**Status: B2d core single-file transfer milestone hardware accepted.**
+Additional nonblocking regression suggestions: `ON ERROR` integration,
+an explicit named SD export to an already existing file, independent CRC
+comparison, and ROM parsing edge cases. Treat these as follow-up work
+rather than reopening the core acceptance. **Do not merge to main
+without the user's explicit permission.** Continue ZIP/multi-file
+design only after B2d is formally integrated or separately authorized.
+
+---
+
 ## 2026-11-11 — User-confirmed v0.06d physical HP-85 export/import success
 
 After rebuilding and loading CPM85 **v0.06d** with the previously installed
