@@ -1,3 +1,33 @@
+## 2026-11-11 — User-confirmed v0.06d physical HP-85 export/import success
+
+After rebuilding and loading CPM85 **v0.06d** with the previously installed
+matched B2d ESP32 and Teensy firmware, user reports **both transfer directions
+work as designed**:
+
+1. `CPEXPORT "A:PIP.COM","PIPB2D2.COM"` created
+   `/cpm/transfers/PIPB2D2.COM` on the Teensy SD card; user verified the
+   exported file exists on SD.
+2. `CPIMPORT "PIPB2D2.COM","F:PIPNEW.COM"` created the imported file
+   on CP/M's F: drive; user verified the file exists there.
+
+This validates on real hardware the optional CPEXPORT SD destination,
+literal import source naming, and the v0.06d **fully drain every Teensy
+mailbox reply through NUL** correction. The prior universal Error 74 /
+CPXCODE 3 regression was removed in this test.
+
+Prior hardware regressions include a MODEM.COM export/import round trip
+followed by successful execution (earlier B2d build), import rejection on
+read-only B:, and no overwrite of existing F: files.
+
+**Not explicitly reverified in this v0.06d user report:** byte-for-byte CRC
+of PIPB2D2.COM, actual execution of its reimported copy, CPXCODE numeric
+values, busy Multiplan handling, ON ERROR trapping, and an overwrite attempt
+with the new optional CPEXPORT SD name. Preserve these as follow-up
+acceptance checks rather than falsely marking them passed. Do not merge
+main without authorization.
+
+---
+
 ## 2026-11-11 — HARDWARE BREAKAGE ROOT CAUSE: v0.06d mailbox reply drain
 
 After matched v0.06c firmware deploy, user reported BOTH CPIMPORT and
