@@ -1,3 +1,59 @@
+## 2026-11-11 — HARDWARE BREAKAGE ROOT CAUSE: v0.06d mailbox reply drain
+
+After matched v0.06c firmware deploy, user reported BOTH CPIMPORT and
+CPEXPORT always failing with **ERROR 74: STALL** and **CPXCODE=3**
+(transport/uncertain). This implicated the shared transfer control path,
+not filename validation or CP/M disk semantics.
+
+**Root cause confirmed by source inspection:** The v0.06a "quiet BASIC"
+rewrite dropped a critical operation present in the earlier v0.05b
+blocking implementation. Every Teensy mailbox response has two prefix
+bytes (`W|`, `P|`, `S|`, etc.) followed by text and terminal NUL. The
+Teensy `onReply()` only returns mailbox state from 2/3 to IDLE when
+the HP reads **through NUL**. The quiet ROM `CXQRY` read only the
+two-byte prefix and then immediately issued a new STATUS or CANCEL.
+Teensy `onOpcode` deliberately ignores ANY new opcode while
+`state!=0`. The HP then sampled stale text bytes as a phase header,
+obtained `U`, and ultimately raised ERROR 74 / CPXCODE 3. This also
+explains why repeated attempts could leave confusing transfer ownership.
+
+**ROM-only correction CPM85 v0.06d:**
+- New `CXQST` subroutine calls `CXQRY` then `CXDRN` to consume the
+  *entire* Teensy reply including the final NUL and release the
+  mailbox before another opcode.
+- All three silent transfer calls (START, STATUS, CANCEL) use `CXQST`.
+- `CPXSTAT` and explicit `CPABORT` continue using `CXQRY` and
+  `CPREAD`, which consume the remaining text for diagnostics.
+- The phase byte remains saved at `CPXPH` independently of draining.
+- Native Teensy regression reproduces the two-byte-prefix-only reply
+  lock and verifies consuming the final NUL releases the mailbox.
+- No ESP32 or Teensy firmware changes are required for this **fix**.
+  Both are already at matched B2d v0.06c protocol; new optional
+  two-argument CPEXPORT remains unverified on hardware.
+
+**CI**: HP ROM v0.06d assembled, keyword tests passed and CAPLIF packaged
+successfully (run 42928499659). Teensy native regression was added at
+8cb880cca5f8915c826f0bf8f5d39d7e585d86b1 and CI verification pending
+at the time of note.
+
+**Next physical trial**:
+1. Keep installed B2d ESP32/Teensy firmware; pull and rebuild *only*
+   HP85-Option-Roms feature branch; verify `CPVER` displays 0.06d.
+2. Confirm CP/M is really idle at A>, and no previous transfer is active
+   (`CPXSTAT` should show terminal/none; `CPABORT` if pending).
+3. Use new non-existing SD target:
+   `CPEXPORT "A:PIP.COM","PIPB2D2.COM"`.
+   Expect silent success, `CPXCODE=0`, file present on SD.
+4. Import `CPIMPORT "PIPB2D2.COM","F:PIPNEW.COM"` only when F:
+   destination absent. Expect silent success, `CPXCODE=0`.
+5. If failure persists, capture exact error, `CPXCODE` and
+   full `CPXSTAT` output *before retry*. The root-cause logic is
+   proven by inspection/CI but still requires physical verification.
+
+No merge to main before user hardware acceptance.
+
+---
+
 ## 2026-11-11 — Additional exact-ID recovery guard (after v0.06c implementation)
 
 Further protocol review showed that a Teensy transaction retained across a
