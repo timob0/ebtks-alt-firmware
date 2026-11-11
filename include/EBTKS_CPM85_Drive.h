@@ -1,10 +1,14 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <string.h>
 
 // CPM85 disk-control mailbox. HP I/O bus ISR may only touch bounded RAM.
-// Protocol: 0343 W ASCII argument bytes, 0344 W opcode (1=status,
-// 2=mount, 3=unmount, 4=Z80 reset, 5=list .dsk, 6=create .dsk,\n// 7=read-only CP/M CPDCAT catalog),\n// 0345 R state, 0346 R reply bytes.
+// Protocol: 0343 W ASCII arguments; 0344 W opcode
+// 1=status, 2=mount, 3=unmount, 4=Z80-only reset, 5=images,
+// 6=create image, 7=CPDCAT, 8=local ESP32 hardware reboot.
+// B2d: 9=start export, 10=start import, 11=status, 12=pre-start cancel.
+// 0345 R state, 0346 R reply bytes.
 // State: 0=idle, 1=busy, 2=success/reply, 3=error/reply. Read bytes
 // through the first NUL to release the mailbox for another command.
 // This mailbox is independent of 0341/0342 keyboard focus control.
@@ -20,7 +24,20 @@ static volatile uint8_t argumentLength=0;
 static char arguments[kArgsMax]={};
 static char response[kReplyMax]={};
 static uint16_t nextSequence=0;
+// B2d transaction ID is allocated by ESP32 from the accepted START seq.
+// Retained across STATUS/CANCEL mailbox requests; not reset by opcode 0.
+static volatile uint16_t transferId=0;
+static volatile bool transferLocked=false; // retained across local opcode-zero resets
 static uint32_t lastOfferMs=0;
+// CPREBOOT is a *Teensy-local* opcode: no ESP32 UART/Wi-Fi dependency.
+// The ISR merely arms these flags. Only service() in the ordinary main
+// loop may pulse the EN pin, and only after HP BASIC consumed its reply.
+static volatile bool espRebootPending=false;
+static bool espRebootTimerActive=false;
+static uint32_t espRebootStartMs=0;
+static constexpr uint32_t kEspRebootGraceMs=1500;
+static constexpr char kEspRebootReply[]=
+    "ESP32 REBOOT QUEUED - CP/M AND WIFI WILL RESTART";
 
 // These four functions are HP bus ISR callbacks: no UART, SD, JSON,
 // logging, heap allocation or waits are allowed in them.
@@ -39,10 +56,33 @@ inline void onOpcode(uint8_t code) {
     return;
   }
   if(state!=0)return;
-  if(code<1 || code>7){argumentLength=0;return;}
+  if(code<1 || code>12){argumentLength=0;return;}
+  // Only one BASIC transfer may own a remote transaction at a time.
+  // A local timeout does not clear ownership: the ESP may have begun BDOS.
+  if((code==9 || code==10) && transferLocked) {
+    // Never silently discard a second START. A locally interrupted BASIC
+    // statement can leave a *real* remote transaction owned by this ID.
+    // Reply explicitly; the HP user can inspect/cancel it without a reset.
+    static constexpr char busy[]=
+      "E|PREVIOUS TRANSFER UNRESOLVED; USE CPXSTAT OR CPABORT";
+    memcpy(response,busy,sizeof(busy));
+    operation=code;
+    readIndex=0;
+    replyLength=sizeof(busy)-1;
+    argumentLength=0;
+    state=3;
+    return;
+  }
   arguments[argumentLength]=0;
   operation=code;
   sequence=++nextSequence;
+  if(code==9 || code==10) {
+    // The ESP32 transaction ID is exactly this first start sequence.
+    // Remember it BEFORE any ACK: a lost start ACK must still permit
+    // subsequent STATUS/CANCEL with the same original transaction ID.
+    transferId=sequence;
+    transferLocked=true;
+  }
   state=1;
   lastOfferMs=0;
 }
@@ -50,6 +90,9 @@ inline uint8_t onState() { return state; }
 inline uint8_t onReply() {
   if(state!=2 && state!=3)return 0;
   if(readIndex<replyLength)return (uint8_t)response[readIndex++];
+  // Acknowledge a local ESP32 reboot *only after* BASIC read the final
+  // NUL. The HP bus ISR never touches GPIO, UART or the network stack.
+  if(operation==8 && state==2)espRebootPending=true;
   // Consume NUL and release. Reset argument length for the next request.
   state=0;
   operation=0;
@@ -60,13 +103,42 @@ inline uint8_t onReply() {
 
 // Called from Teensy's *ordinary loop* in its existing ESP UART poll.
 inline void receiveAck(JsonVariantConst ack) {
-  if(state!=1 || ack.isNull())return;
+  if(state!=1 || operation==8 || ack.isNull())return;
   const int id=ack["seq"] | -1;
   if(id<0 || id!=(int)sequence)return;
   const bool ok=ack["ok"] | false;
+  if(operation>=9 && operation<=12) {
+    const char *phase=ack["phase"] | (const char*)"E";
+    // Failed initial START means the server did not accept a transfer.
+    // A lost reply cannot enter here, so keep ownership in that case.
+    if((operation==9 || operation==10) && !ok && phase[0]=='E')
+      transferLocked=false;
+    if(phase[0]=='S' || phase[0]=='F' || phase[0]=='X')
+      transferLocked=false;
+    // A *specific, confirmed* server-side missing transaction after
+    // ESP reboot is also terminal for this ID. Never unlock on a
+    // generic phase-E, malformed ACK, timeout or transport error.
+    if((operation==11 || operation==12) && !ok && phase[0]=='E' &&
+       strcmp(ack["text"] | (const char *)"", "UNKNOWN TRANSFER TRANSACTION")==0)
+      transferLocked=false;
+  }
   const char *message=ack["text"] | (ok?"OK":"FAILED");
-  size_t len=strnlen(message,kReplyMax-1);
-  memcpy(response,message,len);
+  size_t len=0;
+  if(operation>=9 && operation<=12) {
+    // Distinct wire phase for the BASIC blocking loop. Do not require
+    // English-message parsing on the Capricorn. Bound phase + separator.
+    const char *phase=ack["phase"] | (const char*)"E";
+    const char c=phase[0];
+    response[0]=(c=='B'||c=='W'||c=='P'||c=='R'||c=='S'||
+                 c=='F'||c=='X')?c:'E';
+    response[1]='|';
+    const size_t n=strnlen(message,kReplyMax-3);
+    memcpy(response+2,message,n);
+    len=n+2;
+  } else {
+    len=strnlen(message,kReplyMax-1);
+    memcpy(response,message,len);
+  }
   response[len]=0;
   // Publish length and read cursor BEFORE marking reply available.
   noInterrupts();
@@ -76,7 +148,9 @@ inline void receiveAck(JsonVariantConst ack) {
   interrupts();
 }
 inline void offer(JsonObject out) {
-  if(state!=1)return;
+  // CPRESET must never bypass a still-owned native BDOS transfer.
+  if(state!=1 || operation==8 ||
+     (transferLocked && operation==4))return;
   const uint32_t now=millis();
   // Retry request if the Teensy->ESP response or subsequent ACK was lost.
   // ESP deduplicates by sequence so RESET is never executed twice.
@@ -86,6 +160,55 @@ inline void offer(JsonObject out) {
   cmd["seq"]=(uint16_t)sequence;
   cmd["op"]=(uint8_t)operation;
   cmd["args"]=arguments;
+  if(operation==11 || operation==12)cmd["txn"]=(uint16_t)transferId;
+}
+// Called once per pass from the ordinary Teensy main loop, never from the
+// HP bus ISR. The existing ESP_Reset() function drives EN low, BOOT high,
+// then releases EN (normal firmware boot). No HP power cycle is required.
+//
+// If HP BASIC aborts/times out before consuming the complete reply, the
+// reboot does not happen. A 1.5 s grace period permits the HP command
+// renderer to finish its native CRT newline and return to BASIC.
+inline void service(void (*resetEsp)()) {
+  if(state==1 && transferLocked && (operation==4 || operation==8)) {
+    const char *reply="CP/M TRANSFER UNRESOLVED - RESET REFUSED";
+    const size_t len=strlen(reply);
+    noInterrupts();
+    if(state==1 && transferLocked && (operation==4 || operation==8)) {
+      memcpy(response,reply,len+1);
+      replyLength=(uint16_t)len;
+      readIndex=0;
+      state=3;
+    }
+    interrupts();
+    return;
+  }
+  if(state==1 && operation==8) {
+    const char *reply=espRebootPending?
+      "ESP32 REBOOT ALREADY PENDING":kEspRebootReply;
+    const size_t len=strlen(reply);
+    memcpy(response,reply,len+1);
+    noInterrupts();
+    // HP STOP/timeout can cancel opcode 8 while the reply is prepared.
+    // Recheck under the ISR lock; never revive a canceled command.
+    if(state==1 && operation==8) {
+      replyLength=(uint16_t)len;
+      readIndex=0;
+      state=espRebootPending?3:2;
+    }
+    interrupts();
+  }
+  if(!espRebootPending)return;
+  const uint32_t now=millis();
+  if(!espRebootTimerActive) {
+    espRebootStartMs=now;
+    espRebootTimerActive=true;
+    return;
+  }
+  if(uint32_t(now-espRebootStartMs)<kEspRebootGraceMs)return;
+  espRebootPending=false;
+  espRebootTimerActive=false;
+  if(resetEsp)resetEsp();
 }
 } // namespace Cpm85Drive
 

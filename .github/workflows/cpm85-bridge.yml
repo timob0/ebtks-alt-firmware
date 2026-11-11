@@ -1,7 +1,7 @@
 name: CPM85 Teensy firmware validation
 on:
   push:
-    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control, feature/cpm85-catalog]
+    branches: [feature/cpm85-keyboard-forwarding, feature/cpm85-drive-control, feature/cpm85-catalog, feature/cpm-file-transfer-b2b-sd, feature/cpm-file-transfer-b2c, feature/cpm-file-transfer-b2d, feature/cpm85-esp-reboot]
   workflow_dispatch:
 jobs:
   native:
@@ -18,6 +18,22 @@ jobs:
         run: |
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Itest/stubs -Iinclude test/cpm85_image_native.cpp -o /tmp/cpm85_image_native
           /tmp/cpm85_image_native
+      - name: Native B2b SD staging and copy verification
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Itest/stubs -Iinclude test/cpm85_sd_export_native.cpp -o /tmp/cpm85_sd_export_native
+          /tmp/cpm85_sd_export_native
+      - name: Native B2c SD import read-only source
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Itest/stubs -Iinclude test/cpm85_sd_import_native.cpp -o /tmp/cpm85_sd_import_native
+          /tmp/cpm85_sd_import_native
+      - name: Native CPREBOOT Teensy reset mailbox safety
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Itest/stubs -Iinclude test/cpm85_esp_reboot_native.cpp -o /tmp/cpm85_esp_reboot_native
+          /tmp/cpm85_esp_reboot_native
+      - name: Native B2d HP transfer mailbox identity and timeout safety
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Itest/stubs -Iinclude test/cpm85_transfer_native.cpp -o /tmp/cpm85_transfer_native
+          /tmp/cpm85_transfer_native
   firmware:
     runs-on: ubuntu-latest
     steps:

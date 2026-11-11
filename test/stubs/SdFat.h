@@ -19,6 +19,19 @@ struct FsFile {
   explicit FsFile(std::shared_ptr<MockImage> x):image(x),position(0),opened(true){}
   explicit operator bool() const { return opened && bool(image); }
   size_t write(const uint8_t *p, size_t n);
+  int read(uint8_t *p, size_t n) {
+    if(!opened || !image)return -1;
+    const size_t remain=image->bytes.size()-position;
+    const size_t actual=n<remain?n:remain;
+    if(actual)std::memcpy(p,image->bytes.data()+position,actual);
+    position+=actual;
+    return (int)actual;
+  }
+  bool seek(uint32_t offset) {
+    if(!opened || !image || offset>image->bytes.size())return false;
+    position=offset;
+    return true;
+  }
   bool sync() {return opened;}
   void close(){opened=false;}
   uint32_t size() const {return image ? uint32_t(image->bytes.size()) : 0;}
@@ -38,6 +51,18 @@ struct MockSd {
     return FsFile(it->second);
   }
   bool remove(const char *p) {return entries.erase(p)!=0;}
+  bool mkdir(const char *p) {
+    entries.emplace(p,std::make_shared<MockImage>());
+    return true;
+  }
+  bool rename(const char *from,const char *to) {
+    auto it=entries.find(from);
+    if(it==entries.end() || exists(to))return false;
+    const auto content=it->second;
+    entries.emplace(to,content);
+    entries.erase(from);
+    return true;
+  }
 };
 inline MockSd SD;
 inline size_t FsFile::write(const uint8_t *p,size_t n) {
