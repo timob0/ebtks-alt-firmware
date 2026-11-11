@@ -55,5 +55,19 @@ int main() {
   assert(state==3);
   while(onReply()){}
   assert(state==0 && transferLocked);
+  // Emulator of the HP polling bug fixed in CPM85 v0.06d:
+  // a reply with only its two-byte phase prefix read still owns the
+  // mailbox. Once the rest and final NUL are read, a new opcode works.
+  state=2;operation=11;readIndex=0;replyLength=6;
+  std::memcpy(response,"W|BUSY",6);
+  assert(onReply()=='W' && onReply()=='|');
+  onOpcode(11);
+  assert(state==2 && readIndex==2); // old ROM would stall here
+  while(onReply()){}
+  assert(state==0);
+  onOpcode(11);
+  assert(state==1 && operation==11);
+  onOpcode(0);
+  std::puts("PASS: NUL-terminated HP status reply releases Teensy mailbox");
   std::puts("PASS: B2d Teensy start identity survives lost ACK, local timeout, and competing start");
 }
